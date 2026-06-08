@@ -10,6 +10,3 @@ members = [
     "game-example",
     "xtask",
 ]
-
-[features]
-default = ["opengl"]
