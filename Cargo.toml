@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = [
+    "engine-audio",
+    "engine-core",
+    "engine-ecs",
+    "engine-input",
+    "engine-math",
+    "engine-renderer",
+    "game-example",
+    "xtask",
+]
+
+[features]
+default = ["opengl"]
