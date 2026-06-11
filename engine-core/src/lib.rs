@@ -1,14 +1,13 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+mod runner;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use engine_renderer::Renderer;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub use crate::runner::run;
+
+pub trait App {
+    fn on_start(&mut self);
+    fn on_update(&mut self, dt: f32);
+    fn on_render(&mut self, renderer: &mut dyn Renderer);
+    fn on_stop(&mut self);
+    fn on_resize(&mut self, width: u32, height: u32);
 }

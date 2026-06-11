@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+engine-core = { version = "0.1.0", path = "../engine-core" }
+engine-math = { version = "0.1.0", path = "../engine-math" }
+engine-renderer = { version = "0.1.0", path = "../engine-renderer" }

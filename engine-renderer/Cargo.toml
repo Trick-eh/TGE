@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytemuck = "1.25.0"
+engine-math = { version = "0.1.0", path = "../engine-math" }
+glow = "0.17"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+glutin = "0.32"
+glutin-winit = "0.5"
+winit = { version = "0.30", features = ["wayland"] }
 
 [features]
 default = ["opengl"]

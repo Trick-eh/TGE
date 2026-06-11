@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+winit = { version = "0.30", features = ["wayland"] }
+glutin = "0.32"
+glutin-winit = "0.5.0"
+glow = "0.17"
+engine-renderer = { path = "../engine-renderer" }
