@@ -1,14 +1,19 @@
-use crate::Renderer;
+mod texture;
+use std::path::Path;
+
+use crate::{Renderer, opengl::texture::Texture};
 
 use engine_math::{Camera2D, Transform2D};
-use glow::HasContext;
+use glow::{HasContext, UniformLocation};
 
 pub struct OpenGLRenderer {
     gl: glow::Context,
     shader_program: glow::NativeProgram,
     uniform_model: Option<glow::UniformLocation>,
     uniform_projection: Option<glow::UniformLocation>,
+    uniform_texture: Option<UniformLocation>,
     quad: Mesh,
+    texture: Texture,
     viewport_size: (f32, f32),
 }
 
@@ -75,7 +80,8 @@ impl OpenGLRenderer {
         };
 
         let vertices: &[f32] = &[
-            -0.5, -0.5, 0.0, 0.5, -0.5, 0.0, 0.5, 0.5, 0.0, -0.5, 0.5, 0.0,
+            -0.5, -0.5, 0.0, 0.0, 0.0, 0.5, -0.5, 0.0, 1.0, 0.0, 0.5, 0.5, 0.0, 1.0, 1.0, -0.5,
+            0.5, 0.0, 0.0, 1.0,
         ];
         let indices: &[u32] = &[0, 1, 2, 0, 2, 3];
 
@@ -105,21 +111,36 @@ impl OpenGLRenderer {
                 3,
                 glow::FLOAT,
                 false,
-                (3 * size_of::<f32>()) as i32,
+                (5 * size_of::<f32>()) as i32,
                 0,
             );
             gl.enable_vertex_attrib_array(0);
+            gl.vertex_attrib_pointer_f32(
+                1,
+                2,
+                glow::FLOAT,
+                false,
+                (5 * size_of::<f32>()) as i32,
+                (3 * size_of::<f32>()) as i32,
+            );
+            gl.enable_vertex_attrib_array(1);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             gl.bind_vertex_array(None);
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
         };
 
-        let (uniform_model, uniform_projection) = unsafe {
+        let (uniform_model, uniform_projection, uniform_texture) = unsafe {
             (
                 gl.get_uniform_location(shader_program, "model"),
                 gl.get_uniform_location(shader_program, "projection"),
+                gl.get_uniform_location(shader_program, "tex"),
             )
         };
+
+        unsafe {
+            gl.use_program(Some(shader_program));
+            gl.uniform_1_i32(uniform_texture.as_ref(), 0);
+        }
 
         let quad = Mesh {
             vao,
@@ -128,18 +149,27 @@ impl OpenGLRenderer {
             index_count: 6,
         };
 
+        let texture = Texture::new(
+            &gl,
+            Path::new("engine-renderer/src/opengl/textures/test.png"),
+        );
+
         OpenGLRenderer {
             gl,
             shader_program,
             uniform_model,
             uniform_projection,
+            uniform_texture,
             quad,
             viewport_size: (0.0, 0.0),
+            texture,
         }
     }
     fn draw_quad(&mut self, transform: &Transform2D, camera: &Camera2D, width: f32, height: f32) {
         let gl = &self.gl;
         unsafe { gl.use_program(Some(self.shader_program)) };
+        unsafe { gl.active_texture(glow::TEXTURE0) };
+        unsafe { gl.bind_texture(glow::TEXTURE_2D, Some(self.texture.handle)) };
         unsafe { gl.bind_vertex_array(Some(self.quad.vao)) };
         let model = transform.to_matrix();
         let projection = camera.projection_matrix(width, height);

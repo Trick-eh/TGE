@@ -31,7 +31,7 @@ fn main() {
     run(MyGame {
         transform: Transform2D {
             position: Vec2 { x: 300.0, y: 200.0 },
-            rotation_in_radians: 0.0,
+            rotation_in_radians: 1.0,
             scale: Vec2 { x: 100.0, y: 100.0 },
         },
         camera: Camera2D {
