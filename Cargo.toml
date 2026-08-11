@@ -7,6 +7,6 @@ members = [
     "engine-input",
     "engine-math",
     "engine-renderer",
-    "game-example",
+    "game-example", "snake-clone",
     "xtask",
 ]

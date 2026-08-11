@@ -8,6 +8,7 @@ bytemuck = "1.25.0"
 engine-math = { version = "0.1.0", path = "../engine-math" }
 glow = "0.17"
 image = "0.25.10"
+fontdue = "0.9"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 glutin = "0.32"

@@ -3,4 +3,5 @@ pub struct Time {
     pub elapsed: f32,
     pub frame_count: u64,
     pub alpha: f32,
+    pub is_paused: bool,
 }

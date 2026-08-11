@@ -43,12 +43,13 @@ impl App for MyGame {
         {
             ctx.audio_assets.add_sound(
                 "rotate",
-                ctx.audio.load_sound(include_bytes!("../assets/rotate.mp3")),
+                ctx.audio
+                    .load_sound(include_bytes!("../assets/rotate.mp3").to_vec()),
             );
             ctx.audio_assets.add_music(
                 "bg",
                 ctx.audio
-                    .load_music(include_bytes!("../assets/background.mp3")),
+                    .load_music(include_bytes!("../assets/background.mp3").to_vec()),
             );
         }
 
@@ -167,6 +168,10 @@ fn player_movement_system(ctx: &mut UpdateContext) {
 }
 
 fn main() {
+    main_lua();
+}
+
+fn main_rust() {
     let config = GameConfig {
         window_title: "game example".to_string(),
         music_volume: 0.2,
@@ -176,6 +181,21 @@ fn main() {
         MyGame {
             spritesheets: HashMap::new(),
         },
+        config,
+    )
+    .unwrap();
+}
+
+fn main_lua() {
+    use engine_core::{GameConfig, lua::LuaApp, run};
+
+    let config = GameConfig {
+        window_title: "game example".to_string(),
+        ..GameConfig::default()
+    };
+
+    run(
+        LuaApp::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src/main.lua")),
         config,
     )
     .unwrap();

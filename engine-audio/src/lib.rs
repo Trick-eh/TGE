@@ -19,7 +19,7 @@ pub struct MusicHandle(usize);
 pub struct AudioManager {
     manager: KiraManager<DefaultBackend>,
     sounds: Vec<StaticSoundData>,
-    music_bytes: Vec<&'static [u8]>,
+    music_bytes: Vec<Vec<u8>>,
     sfx_track: TrackHandle,
     music_track: TrackHandle,
     current_music: Option<StreamingSoundHandle<FromFileError>>,
@@ -46,7 +46,7 @@ impl AudioManager {
         }
     }
 
-    pub fn load_sound(&mut self, bytes: &'static [u8]) -> SoundHandle {
+    pub fn load_sound(&mut self, bytes: Vec<u8>) -> SoundHandle {
         let data = StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
             .expect("Failed to load sound");
         let index = self.sounds.len();
@@ -65,7 +65,7 @@ impl AudioManager {
         self.manager.play(data).expect("Failed to play sound");
     }
 
-    pub fn load_music(&mut self, bytes: &'static [u8]) -> MusicHandle {
+    pub fn load_music(&mut self, bytes: Vec<u8>) -> MusicHandle {
         let index = self.music_bytes.len();
         self.music_bytes.push(bytes);
         MusicHandle(index)
@@ -73,11 +73,12 @@ impl AudioManager {
     pub fn play_music(&mut self, handle: &MusicHandle) {
         self.stop_music();
 
-        let data =
-            StreamingSoundData::from_cursor(std::io::Cursor::new(self.music_bytes[handle.0]))
-                .expect("Failed to load music")
-                .output_destination(&self.music_track)
-                .loop_region(..);
+        let data = StreamingSoundData::from_cursor(std::io::Cursor::new(
+            self.music_bytes[handle.0].clone(),
+        ))
+        .expect("Failed to load music")
+        .output_destination(&self.music_track)
+        .loop_region(..);
 
         let music_handle = self.manager.play(data).expect("Failed to play music");
         self.current_music = Some(music_handle);
@@ -109,6 +110,12 @@ impl AudioManager {
     pub fn set_music_volume(&mut self, volume: f64) {
         self.music_track.set_volume(volume, Tween::default());
     }
+
+    pub fn clear_assets(&mut self) {
+        self.stop_music();
+        self.sounds.clear();
+        self.music_bytes.clear();
+    }
 }
 
 pub struct AudioAssets {
@@ -133,5 +140,10 @@ impl AudioAssets {
     }
     pub fn get_music(&self, name: &str) -> Option<&MusicHandle> {
         self.music.get(name)
+    }
+
+    pub fn clear_assets(&mut self) {
+        self.sounds.clear();
+        self.music.clear();
     }
 }

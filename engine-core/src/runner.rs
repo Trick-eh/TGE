@@ -2,35 +2,25 @@ use crate::{
     GameConfig,
     contexts::{FixedContext, RenderContext, StartContext, UpdateContext},
     converter::{convert_key, convert_mouse_button},
-    schedule::{self, SystemSchedule},
+    lua::LuaApp,
+    save::SaveData,
+    schedule::SystemSchedule,
     systems,
     time::Time,
 };
 
 use engine_audio::{AudioAssets, AudioManager};
 use engine_ecs::World;
-use engine_input::InputState;
+use engine_input::{InputState, KeyCode};
 use engine_renderer::{Renderer, opengl::OpenGLRenderer};
-use glutin::{
-    api::egl::{config, surface},
-    config::{ConfigTemplateBuilder, GlConfig},
-    context::{ContextAttributesBuilder, PossiblyCurrentContext},
-    display::GetGlDisplay,
-    prelude::*,
-    prelude::{GlDisplay, NotCurrentGlContext},
-    surface::{GlSurface, Surface, WindowSurface},
-};
-use glutin_winit::{DisplayBuilder, GlWindow};
 use std::{
-    ffi::{CStr, CString},
-    ops::DerefMut,
-    time::Instant,
+    sync::mpsc::Receiver,
+    time::{Duration, Instant},
 };
 use winit::{
     application::ApplicationHandler,
-    event::{KeyEvent, MouseScrollDelta, WindowEvent},
+    event::{MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
-    raw_window_handle::HasRawWindowHandle,
     window::{Window, WindowId},
 };
 
@@ -38,8 +28,6 @@ struct EngineRunner {
     app: Box<dyn crate::App>,
     window: Option<Window>,
     size: (u32, u32),
-    gl_surface: Option<Surface<WindowSurface>>,
-    gl_context: Option<PossiblyCurrentContext>,
     renderer: Option<Box<dyn engine_renderer::Renderer>>,
     input: InputState,
     world: World,
@@ -50,69 +38,21 @@ struct EngineRunner {
     audio: AudioManager,
     audio_assets: AudioAssets,
     config: GameConfig,
+    reload_rx: Option<Receiver<()>>,
+    save_data: SaveData,
 }
 
 impl ApplicationHandler for EngineRunner {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let template_builder = ConfigTemplateBuilder::new();
-        let display_builder = DisplayBuilder::new().with_window_attributes(Some(
-            Window::default_attributes().with_title(&self.config.window_title),
-        ));
-
-        let (window, gl_config) = display_builder
-            .build(event_loop, template_builder, |configs| {
-                configs
-                    .reduce(|a, b| {
-                        if a.num_samples() > b.num_samples() {
-                            a
-                        } else {
-                            b
-                        }
-                    })
-                    .unwrap()
-            })
-            .unwrap();
-        let window = window.unwrap();
-
-        let context_attrs =
-            ContextAttributesBuilder::new().build(Some(window.raw_window_handle().unwrap()));
-        let not_current_ctx = unsafe {
-            gl_config
-                .display()
-                .create_context(&gl_config, &context_attrs)
-                .unwrap()
-        };
-
-        let surface_attrs = window.build_surface_attributes(Default::default()).unwrap();
-        let gl_surface = unsafe {
-            gl_config
-                .display()
-                .create_window_surface(&gl_config, &surface_attrs)
-                .unwrap()
-        };
-
-        let gl_context = not_current_ctx.make_current(&gl_surface).unwrap();
-
-        let gl = unsafe {
-            glow::Context::from_loader_function(|s| {
-                gl_config
-                    .display()
-                    .get_proc_address(CString::new(s).unwrap().as_c_str())
-                    as *const _
-            })
-        };
-
-        let size = window.inner_size();
-        let mut renderer = Box::new(OpenGLRenderer::new(gl));
-        renderer.resize(size.width, size.height);
+        let (window, mut renderer) = engine_renderer::create(event_loop, &self.config.window_title);
 
         window.request_redraw();
 
-        self.gl_surface = Some(gl_surface);
-        self.gl_context = Some(gl_context);
         self.renderer = Some(renderer);
         self.window = Some(window);
+
         self.schedule.add_fixed_system(systems::snapshot_system);
+        self.schedule.add_fixed_system(systems::velocity_system);
         self.schedule.add_update_system(systems::animation_system);
         self.schedule
             .add_render_system(systems::sprite_render_system);
@@ -121,10 +61,12 @@ impl ApplicationHandler for EngineRunner {
             self.app.on_start(&mut StartContext {
                 world: &mut self.world,
                 renderer: renderer.as_mut(),
+                time: &mut self.time,
                 audio: &mut self.audio,
                 schedule: &mut self.schedule,
                 input: &mut self.input,
                 audio_assets: &mut self.audio_assets,
+                save_data: &mut self.save_data,
             });
         }
     }
@@ -166,12 +108,11 @@ impl ApplicationHandler for EngineRunner {
             }
             WindowEvent::CloseRequested => {
                 self.app.on_stop();
+                self.save_data.flush();
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(renderer), Some(surface), Some(ctx)) =
-                    (&mut self.renderer, &self.gl_surface, &self.gl_context)
-                {
+                if let Some(renderer) = &mut self.renderer {
                     renderer.begin_frame();
                     let mut render_ctx = RenderContext {
                         world: &mut self.world,
@@ -179,10 +120,11 @@ impl ApplicationHandler for EngineRunner {
                         renderer: renderer.as_mut(),
                         audio: &mut self.audio,
                     };
+                    self.app.on_background(&mut render_ctx);
                     self.schedule.run_render(&mut render_ctx);
                     self.app.on_render(&mut render_ctx);
                     renderer.end_frame();
-                    surface.swap_buffers(ctx).unwrap();
+                    renderer.present();
                 }
             }
             WindowEvent::Resized(size) => {
@@ -192,19 +134,65 @@ impl ApplicationHandler for EngineRunner {
                 if let Some(renderer) = &mut self.renderer {
                     renderer.resize(width, height);
                 }
-                if let (Some(surface), Some(ctx)) = (&self.gl_surface, &self.gl_context) {
-                    surface.resize(
-                        ctx,
-                        std::num::NonZeroU32::new(width.max(1)).unwrap(),
-                        std::num::NonZeroU32::new(height.max(1)).unwrap(),
-                    );
-                }
             }
             _ => {}
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let should_reload = self
+            .app
+            .as_any_mut()
+            .downcast_mut::<LuaApp>()
+            .map(|app| {
+                let has_event = app.reload_rx.try_recv().is_ok();
+                if has_event {
+                    eprintln!(
+                        "DEBUG: file change event received, elapsed={:?}",
+                        app.last_reload.elapsed()
+                    );
+                }
+                while app.reload_rx.try_recv().is_ok() {}
+
+                if has_event && app.last_reload.elapsed() > Duration::from_millis(200) {
+                    eprintln!("DEBUG: triggering reload");
+                    app.last_reload = Instant::now();
+                    true
+                } else if has_event {
+                    eprintln!("DEBUG: debounced, skipping reload");
+                    false
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
+
+        if should_reload {
+            if let Some(mut renderer) = self.renderer.take() {
+                let entities: Vec<_> = self.world.iter().map(|e| e.entity()).collect();
+                for e in entities {
+                    let _ = self.world.despawn(e);
+                }
+
+                let mut ctx = StartContext {
+                    world: &mut self.world,
+                    renderer: renderer.as_mut(),
+                    time: &mut self.time,
+                    audio: &mut self.audio,
+                    audio_assets: &mut self.audio_assets,
+                    schedule: &mut self.schedule,
+                    input: &mut self.input,
+                    save_data: &mut self.save_data,
+                };
+
+                if let Some(lua_app) = self.app.as_any_mut().downcast_mut::<LuaApp>() {
+                    lua_app.reload(&mut ctx);
+                }
+
+                self.renderer = Some(renderer);
+            }
+        }
+
         const FIXED_DT: f32 = 1.0 / 60.0;
 
         let now = Instant::now();
@@ -223,14 +211,17 @@ impl ApplicationHandler for EngineRunner {
 
         self.accumulator += dt;
         while self.accumulator >= FIXED_DT {
-            let fixed_time = Time {
+            let mut fixed_time = Time {
                 dt: FIXED_DT,
                 ..self.time
             };
             let mut fixed_ctx = FixedContext {
                 world: &mut self.world,
-                time: &fixed_time,
+                time: &mut fixed_time,
                 audio: &mut self.audio,
+                audio_assets: &mut self.audio_assets,
+                input: &mut self.input,
+                save_data: &mut self.save_data,
             };
             self.schedule.run_fixed(&mut fixed_ctx);
             self.app.on_fixed_update(&mut fixed_ctx);
@@ -245,6 +236,7 @@ impl ApplicationHandler for EngineRunner {
             audio: &mut self.audio,
             audio_assets: &mut self.audio_assets,
             config: &self.config,
+            save_data: &mut self.save_data,
         };
         self.schedule.run_update(&mut update_ctx);
         self.app.on_update(&mut update_ctx);
@@ -253,6 +245,8 @@ impl ApplicationHandler for EngineRunner {
         if let Some(w) = &self.window {
             w.request_redraw();
         }
+
+        self.save_data.flush();
     }
 }
 
@@ -262,12 +256,13 @@ pub fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
+
+    let save_data = SaveData::load(&config.window_title);
+
     let mut runner = EngineRunner {
         app: Box::new(app),
         window: None,
         size: (0, 0),
-        gl_surface: None,
-        gl_context: None,
         renderer: None,
         input: InputState::new(),
         world: World::new(),
@@ -278,11 +273,14 @@ pub fn run(
             elapsed: 0.0,
             frame_count: 0,
             alpha: 0.0,
+            is_paused: false,
         },
         schedule: SystemSchedule::new(),
         audio: AudioManager::new(),
         audio_assets: AudioAssets::new(),
         config,
+        reload_rx: None,
+        save_data,
     };
 
     runner.audio.set_master_volume(runner.config.master_volume);

@@ -2,7 +2,7 @@ use crate::{
     contexts::{FixedContext, RenderContext, UpdateContext},
     time::Time,
 };
-use engine_ecs::{ActiveCamera, PreviousTransform, World};
+use engine_ecs::{ActiveCamera, PreviousTransform, Velocity, World};
 use engine_input::InputState;
 use engine_math::{Camera2D, Transform2D};
 use engine_renderer::{AnimatedSprite, Renderer, Sprite};
@@ -34,7 +34,6 @@ fn interpolate(transform: &Transform2D, previous: &PreviousTransform, time: &Tim
 pub fn sprite_render_system(ctx: &mut RenderContext) {
     let mut camera_query = ctx.world.query::<(&Camera2D, &ActiveCamera)>();
     let camera = camera_query.iter().next().map(|(cam, _)| cam);
-
     let Some(camera) = camera else { return };
 
     ctx.renderer.set_camera(&camera);
@@ -65,13 +64,19 @@ pub fn sprite_render_system(ctx: &mut RenderContext) {
         .world
         .query::<(&Transform2D, &Sprite)>()
         .without::<&AnimatedSprite>()
+        .without::<&PreviousTransform>()
         .iter()
     {
         ctx.renderer
             .draw_sprite(transform, sprite.sprite_sheet, sprite.index);
     }
 
-    for (transform, anim) in ctx.world.query::<(&Transform2D, &AnimatedSprite)>().iter() {
+    for (transform, anim) in ctx
+        .world
+        .query::<(&Transform2D, &AnimatedSprite)>()
+        .without::<&PreviousTransform>()
+        .iter()
+    {
         let index = anim.frames[anim.current_frame];
         ctx.renderer
             .draw_sprite(transform, anim.sprite_sheet, index);
@@ -86,5 +91,14 @@ pub fn snapshot_system(ctx: &mut FixedContext) {
     {
         previous.position = transform.position;
         previous.rotation = transform.rotation_in_radians;
+    }
+}
+
+pub fn velocity_system(ctx: &mut FixedContext) {
+    if ctx.time.is_paused {
+        return;
+    }
+    for (transform, velocity) in ctx.world.query::<(&mut Transform2D, &Velocity)>().iter() {
+        transform.position += velocity.value * ctx.time.dt;
     }
 }

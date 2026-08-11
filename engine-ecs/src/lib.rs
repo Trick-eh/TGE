@@ -1,5 +1,18 @@
 use engine_math::Vec2;
 pub use hecs::*;
+use std::collections::HashMap;
+
+pub struct LuaComponents {
+    pub data: HashMap<String, LuaData>,
+}
+
+#[derive(Clone, Debug)]
+pub enum LuaData {
+    Number(f64),
+    Bool(bool),
+    String(String),
+    Nil,
+}
 
 pub struct Velocity {
     pub value: Vec2,
