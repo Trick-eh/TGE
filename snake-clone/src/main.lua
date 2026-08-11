@@ -1,38 +1,103 @@
+--[[
+	snake-clone/main.lua
+
+	A reference game for the engine's Lua API. Every major system the engine
+	exposes to Lua is used here at least once:
+
+	  - input:      bind_action / is_action_pressed / is_action_held
+	  - entities:   spawn_entity / despawn / set_position / set_velocity
+	  - sprites:    load_texture / create_sprite_sheet / set_sprite / set_animated_sprite
+	  - text:       load_font / draw_text / measure_text
+	  - shapes:     draw_rect
+	  - audio:      load_sound / play_sound
+	  - camera:     set_camera
+	  - simulation: set_paused
+	  - persistence:save_data / load_data   (survives process restarts)
+
+    Tho it wasn't used here, its great to mention the most useful engine system
+    for Lua devs:
+      - hot_reload: persist / get_persisted (allows data to survive a hot_reload, 
+                                             which is triggered upon saving a change mid execution)
+
+	Lifecycle callbacks the engine calls into, in the order they matter:
+	  on_start()          -- once, before the first frame
+	  on_update(dt)        -- every frame; dt is the real (unclamped) frame time
+	  on_fixed_update(dt)  -- fixed-rate ticks (dt == GameConfig.fixed_timestep);
+	                          put anything that must be deterministic here
+	  on_background()      -- render, drawn before world sprites
+	  on_render()          -- render, drawn after world sprites (UI/overlays)
+	  on_stop()            -- once, on window close
+]]
+
 local game_root = "snake-clone/"
 
-local GRID_W = 20
-local GRID_H = 20
+-- ---------------------------------------------------------------------------
+-- Tunables
+-- ---------------------------------------------------------------------------
+
+local GRID_W, GRID_H = 20, 20
 local CELL_SIZE = 32
 
-local snake = {}
-local direction = { x = 1, y = 0 }
-local next_direction = { x = 1, y = 0 }
-local food = { x = 0, y = 0 }
-local segment_entities = {}
-local food_entity = nil
+-- Movement speed is expressed as "fixed ticks per grid move" rather than a
+-- raw speed, because the game logic advances on fixed ticks (see
+-- on_fixed_update). Fewer ticks per move = faster snake.
+
 local MAX_TICKS_PER_MOVE = 10
 local MIN_TICKS_PER_MOVE = 4
-local STEPS_PER_TICKS_DECREASE = 5
+local STEPS_PER_TICKS_DECREASE = 5 -- every N points, shave one tick off the move interval
+
+-- ---------------------------------------------------------------------------
+-- Game state
+-- ---------------------------------------------------------------------------
+
+local snake = {} -- array of { x, y } grid cells, [1] is the head
+local direction = { x = 1, y = 0 } -- current movement direction (locked in for this tick)
+local next_direction = { x = 1, y = 0 } -- direction that will apply on the *next* move
+local queued_direction = nil -- input received since the last move, applied next move
+
+local food = { x = 0, y = 0 }
+local segment_entities = {} -- entity ids, parallel array to `snake`
+local food_entity = nil
+
 local tick_count = 0
 local alive = true
 local paused = false
 local score = 0
 local high_score = 0
-local queued_direction = nil
-local sheet
-local font
-local title_font
 
--- grid to world pos converter
+local sheet -- SpriteSheetHandle for snake.png
+local font -- FontHandle for UI text
+local title_font -- FontHandle for UI Titles
+
+-- ---------------------------------------------------------------------------
+-- Grid <-> world space
+-- ---------------------------------------------------------------------------
+
+-- The grid is centered on the world origin, so the camera can stay at (0,0).
 local function grid_to_world(gx, gy)
 	return gx * CELL_SIZE - ((GRID_W - 1) * CELL_SIZE) / 2, gy * CELL_SIZE - ((GRID_H - 1) * CELL_SIZE) / 2
 end
 
--- spawns or reuses a segment entity at grid pos
+-- ---------------------------------------------------------------------------
+-- Segment entities
+--
+-- Every segment is a persistent entity reused across moves (entities are
+-- expensive to spawn/despawn relative to just repositioning them). Segments
+-- are always spawned WITH a `velocity` component, even though it starts at
+-- zero: engine.set_velocity() is a no-op on entities that were never given a
+-- velocity component in the first place, so the component has to exist from
+-- spawn time or later velocity-based movement below silently does nothing.
+-- ---------------------------------------------------------------------------
+
 local function set_segment(index, gx, gy, tile)
 	local wx, wy = grid_to_world(gx, gy)
+
 	if segment_entities[index] then
-		-- engine.set_position(segment_entities[index], wx, wy)
+		-- Existing segment: only the sprite (which tile/orientation) is set
+		-- here. Position is NOT set directly -- it's driven every fixed tick
+		-- by the engine's built-in velocity integration (see
+		-- set_segment_velocities below), which is what makes movement glide
+		-- between cells instead of teleporting.
 		engine.set_sprite(segment_entities[index], sheet, tile)
 	else
 		local id = engine.spawn_entity({
@@ -50,7 +115,6 @@ local function set_segment(index, gx, gy, tile)
 	end
 end
 
--- despawn extra segment entities
 local function trim_segments(count)
 	for i = count + 1, #segment_entities do
 		engine.despawn(segment_entities[i])
@@ -58,7 +122,10 @@ local function trim_segments(count)
 	end
 end
 
--- places a food at a random non occupied cell, spawns an entity if there is no food entity
+-- ---------------------------------------------------------------------------
+-- Food
+-- ---------------------------------------------------------------------------
+
 local function spawn_food()
 	local function occupied(gx, gy)
 		for _, seg in ipairs(snake) do
@@ -90,9 +157,14 @@ local function spawn_food()
 				rotation = 0,
 			},
 		})
+		-- Animated sprite: alternates between tiles 5 and 6 every 0.3s, looping.
 		engine.set_animated_sprite(food_entity, sheet, { 5, 6 }, 0.3, true)
 	end
 end
+
+-- ---------------------------------------------------------------------------
+-- Game setup / reset
+-- ---------------------------------------------------------------------------
 
 local function despawn_entities()
 	for _, id in ipairs(segment_entities) do
@@ -127,6 +199,17 @@ local function init_game()
 	spawn_food()
 end
 
+-- ---------------------------------------------------------------------------
+-- Collision
+--
+-- `tail_will_move` matters because the tail segment is about to vacate its
+-- current cell on any move that isn't a growth move (food not eaten). If the
+-- head is moving into that soon-to-be-empty cell, it should NOT count as a
+-- collision, the tail won't actually be there anymore once the move
+-- completes. On a growth move, the tail stays put (nothing is removed from
+-- `snake`), so its cell is still genuinely occupied and must still block.
+-- ---------------------------------------------------------------------------
+
 local function check_collision(hx, hy, tail_will_move)
 	if hx < 0 or hx >= GRID_W or hy < 0 or hy >= GRID_H then
 		return true
@@ -145,12 +228,26 @@ local function on_death()
 
 	if score > high_score then
 		high_score = score
+		-- save_data persists to disk and survives process restarts, unlike
+		-- engine.persist (which only survives Lua hot-reloads during dev mode).
 		engine.save_data("high_score", high_score)
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- Grid-authoritative movement
+--
+-- This is deliberately instant: `snake`, collisions, and food are all
+-- resolved as a single atomic step with no interpolation of their own. The
+-- SMOOTH visual glide is a separate concern, handled entirely by
+-- set_segment_velocities() below. Keeping grid logic instant and simple
+-- means the rules (collision, growth, scoring) can be reasoned about
+-- independently of how they're presented on screen.
+-- ---------------------------------------------------------------------------
+
 local function move_snake()
 	if queued_direction then
+		-- Reject reversing directly into yourself.
 		if not (queued_direction.x == -direction.x and queued_direction.y == -direction.y) then
 			next_direction = queued_direction
 		end
@@ -173,10 +270,9 @@ local function move_snake()
 	if eating then
 		score = score + 1
 		engine.play_sound("eat")
-		print("score: " .. score)
 		spawn_food()
 	else
-		table.remove(snake)
+		table.remove(snake) -- tail moves up; not a growth move
 	end
 end
 
@@ -197,7 +293,7 @@ end
 
 local function update_visuals()
 	for i, seg in ipairs(snake) do
-		local tile = 4
+		local tile = 4 -- body
 		if i == 1 then
 			tile = head_tile()
 		end
@@ -209,6 +305,23 @@ end
 local function ticks_per_move()
 	return math.max(MIN_TICKS_PER_MOVE, MAX_TICKS_PER_MOVE - math.floor(score / STEPS_PER_TICKS_DECREASE))
 end
+
+-- ---------------------------------------------------------------------------
+-- Visual glide via velocity
+--
+-- Called exactly once per grid move (not every fixed tick). For each
+-- segment, the distance between its pre-move and post-move cell is known
+-- ahead of time, so a constant velocity can be computed that will carry it
+-- exactly from one cell to the next over the course of `ticks_per_move()`
+-- fixed ticks. The engine's own fixed-tick velocity integration then does
+-- the rest, every tick, without any further Lua involvement until the next
+-- move.
+--
+-- `engine.set_position` here is a defensive resync, not the primary way
+-- position is driven: it snaps each segment to where our own grid bookkeeping
+-- says it should already be, so floating point drift can never accumulate
+-- across many hops.
+-- ---------------------------------------------------------------------------
 
 local function set_segment_velocities(prev_snake, dt)
 	local duration = ticks_per_move() * dt
@@ -223,17 +336,27 @@ local function set_segment_velocities(prev_snake, dt)
 			local dy = (seg.y - prev.y) * CELL_SIZE
 			engine.set_velocity(segment_entities[i], dx / duration, dy / duration)
 		else
+			-- Brand new tail segment from growth -- already placed correctly
+			-- by set_segment() this tick, nothing to animate toward.
 			engine.set_velocity(segment_entities[i], 0, 0)
 		end
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- UI and Background
+-- ---------------------------------------------------------------------------
+
 local function draw_game_background()
-	local grid_w = GRID_W * CELL_SIZE
-	local grid_h = GRID_H * CELL_SIZE
+	local grid_w, grid_h = GRID_W * CELL_SIZE, GRID_H * CELL_SIZE
 	local border = 4
+
+	-- draw_rect draws a solid, batched quad centered at (x, y). Because it
+	-- shares the same batch as sprites, drawing the whole checkerboard here
+	-- costs a handful of GPU draw calls total, not one per cell.
 	engine.draw_rect(0, 0, grid_w + border * 2, grid_h + border * 2, 0.8, 0.8, 0.8, 1.0)
 	engine.draw_rect(0, 0, grid_w, grid_h, 0.1, 0.3, 0.1, 1.0)
+
 	for i = 1, GRID_H do
 		for j = 1, GRID_W do
 			if i % 2 == 0 then
@@ -294,6 +417,66 @@ local function show_game_paused_screen()
 	engine.draw_text(continue_text, font, -continue_size.x / 2, -GRID_H * CELL_SIZE / 5, 1, 0.5, 0, 1)
 end
 
+local function show_game_ui()
+	local sc_text = "Score: " .. score
+	local sc_size = engine.measure_text(sc_text, font)
+	engine.draw_text(
+		"Score: " .. score,
+		font,
+		CELL_SIZE * (GRID_W - 1) / 2 - sc_size.x,
+		CELL_SIZE * (GRID_H + 1) / 2,
+		1,
+		1,
+		1,
+		1
+	)
+
+	local hs_text = "Best: " .. math.floor(high_score)
+	local hs_size = engine.measure_text(hs_text, font)
+	engine.draw_text(
+		hs_text,
+		font,
+		CELL_SIZE * (GRID_W - 2) / 2 - hs_size.x - sc_size.x,
+		CELL_SIZE * (GRID_H + 1) / 2,
+		1,
+		1,
+		0,
+		1
+	)
+
+	local mv_text_1 = "w / up"
+	local mv_text_2 = "a / left  |  s / down  |  d / right"
+	local mv_size_1 = engine.measure_text(mv_text_1, font)
+	local mv_size_2 = engine.measure_text(mv_text_2, font)
+	engine.draw_text(mv_text_2, font, -CELL_SIZE * GRID_W / 2, -CELL_SIZE * (GRID_H + 2) / 2, 0.7, 0.7, 0.7, 1)
+	engine.draw_text(
+		mv_text_1,
+		font,
+		-CELL_SIZE * GRID_W / 2 + mv_size_2.x / 2 - mv_size_1.x / 2,
+		-CELL_SIZE * (GRID_H + 1) / 2,
+		0.7,
+		0.7,
+		0.7,
+		1
+	)
+	local pause_text = "press space to pause"
+	local pause_size = engine.measure_text(pause_text, font)
+	engine.draw_text(
+		pause_text,
+		font,
+		CELL_SIZE * GRID_W / 2 - pause_size.x,
+		-CELL_SIZE * (GRID_H + 1.5) / 2,
+		0.7,
+		0.7,
+		0.7,
+		1
+	)
+end
+
+-- ---------------------------------------------------------------------------
+-- Lifecycle
+-- ---------------------------------------------------------------------------
+
 function on_start()
 	font = engine.load_font(game_root .. "assets/font.ttf", 24)
 	title_font = engine.load_font(game_root .. "assets/font.ttf", 48)
@@ -330,105 +513,59 @@ function on_update(dt)
 		end
 		return
 	end
-	if not paused then
-		if engine.is_action_pressed("up") and direction.y == 0 then
-			queued_direction = { x = 0, y = 1 }
-		elseif engine.is_action_pressed("down") and direction.y == 0 then
-			queued_direction = { x = 0, y = -1 }
-		elseif engine.is_action_pressed("left") and direction.x == 0 then
-			queued_direction = { x = -1, y = 0 }
-		elseif engine.is_action_pressed("right") and direction.x == 0 then
-			queued_direction = { x = 1, y = 0 }
-		elseif engine.is_action_pressed("pause") then
-			paused = true
-			engine.set_paused(true)
-		end
-	else
-		if engine.is_action_pressed("pause") then
-			paused = false
-			engine.set_paused(false)
-		end
+
+	-- Pause is toggled on the press edge, not held state, so a single tap
+	-- flips it. `engine.set_paused` only freezes systems that check it
+	-- (currently: the engine's velocity integration) -- on_fixed_update
+	-- still runs while paused, which is why the `paused` gate below is also
+	-- needed on the Lua side to stop tick_count from silently advancing.
+	if engine.is_action_pressed("pause") then
+		paused = not paused
+		engine.set_paused(paused)
+	end
+
+	if paused then
+		return
+	end
+
+	if engine.is_action_pressed("up") and direction.y == 0 then
+		queued_direction = { x = 0, y = 1 }
+	elseif engine.is_action_pressed("down") and direction.y == 0 then
+		queued_direction = { x = 0, y = -1 }
+	elseif engine.is_action_pressed("left") and direction.x == 0 then
+		queued_direction = { x = -1, y = 0 }
+	elseif engine.is_action_pressed("right") and direction.x == 0 then
+		queued_direction = { x = 1, y = 0 }
 	end
 end
 
 function on_fixed_update(dt)
-	if not alive then
+	if not alive or paused then
 		return
 	end
-	if not paused then
-		tick_count = tick_count + 1
-		if tick_count >= ticks_per_move() then
-			tick_count = 0
 
-			local prev_snake = {}
-			for i, seg in ipairs(snake) do
-				prev_snake[i] = { x = seg.x, y = seg.y }
-			end
+	tick_count = tick_count + 1
 
-			move_snake()
-			update_visuals()
-			set_segment_velocities(prev_snake, dt)
+	if tick_count >= ticks_per_move() then
+		tick_count = 0
+
+		-- Snapshot cell positions before the move so set_segment_velocities
+		-- can diff "where each segment index was" against "where it is now".
+		local prev_snake = {}
+		for i, seg in ipairs(snake) do
+			prev_snake[i] = { x = seg.x, y = seg.y }
 		end
+
+		move_snake()
+		update_visuals()
+		set_segment_velocities(prev_snake, dt)
 	end
 end
 
 function on_render()
 	if alive then
-		if not paused then
-			local sc_text = "Score: " .. score
-			local sc_size = engine.measure_text(sc_text, font)
-			engine.draw_text(
-				"Score: " .. score,
-				font,
-				CELL_SIZE * (GRID_W - 1) / 2 - sc_size.x,
-				CELL_SIZE * (GRID_H + 1) / 2,
-				1,
-				1,
-				1,
-				1
-			)
-
-			local hs_text = "Best: " .. math.floor(high_score)
-			local hs_size = engine.measure_text(hs_text, font)
-			engine.draw_text(
-				hs_text,
-				font,
-				CELL_SIZE * (GRID_W - 2) / 2 - hs_size.x - sc_size.x,
-				CELL_SIZE * (GRID_H + 1) / 2,
-				1,
-				1,
-				0,
-				1
-			)
-
-			local mv_text_1 = "w / up"
-			local mv_text_2 = "a / left  |  s / down  |  d / right"
-			local mv_size_1 = engine.measure_text(mv_text_1, font)
-			local mv_size_2 = engine.measure_text(mv_text_2, font)
-			engine.draw_text(mv_text_2, font, -CELL_SIZE * GRID_W / 2, -CELL_SIZE * (GRID_H + 2) / 2, 0.7, 0.7, 0.7, 1)
-			engine.draw_text(
-				mv_text_1,
-				font,
-				-CELL_SIZE * GRID_W / 2 + mv_size_2.x / 2 - mv_size_1.x / 2,
-				-CELL_SIZE * (GRID_H + 1) / 2,
-				0.7,
-				0.7,
-				0.7,
-				1
-			)
-			local pause_text = "press space to pause"
-			local pause_size = engine.measure_text(pause_text, font)
-			engine.draw_text(
-				pause_text,
-				font,
-				CELL_SIZE * GRID_W / 2 - pause_size.x,
-				-CELL_SIZE * (GRID_H + 1.5) / 2,
-				0.7,
-				0.7,
-				0.7,
-				1
-			)
-		else
+		show_game_ui()
+		if paused then
 			show_game_paused_screen()
 		end
 	else
