@@ -2,10 +2,9 @@ use crate::{
     contexts::{FixedContext, RenderContext, UpdateContext},
     time::Time,
 };
-use engine_ecs::{ActiveCamera, PreviousTransform, Velocity, World};
-use engine_input::InputState;
+use engine_ecs::{ActiveCamera, PreviousTransform, Velocity};
 use engine_math::{Camera2D, Transform2D};
-use engine_renderer::{AnimatedSprite, Renderer, Sprite};
+use engine_renderer::{AnimatedSprite, Sprite};
 
 pub fn animation_system(ctx: &mut UpdateContext) {
     for anim in ctx.world.query::<&mut AnimatedSprite>().iter() {
@@ -57,7 +56,7 @@ pub fn sprite_render_system(ctx: &mut RenderContext) {
         let index = anim.frames[anim.current_frame];
         let interpolated = interpolate(transform, previous, ctx.time);
         ctx.renderer
-            .draw_sprite(transform, anim.sprite_sheet, index);
+            .draw_sprite(&interpolated, anim.sprite_sheet, index);
     }
 
     for (transform, sprite) in ctx

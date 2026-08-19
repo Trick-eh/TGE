@@ -43,7 +43,7 @@ local CELL_SIZE = 32
 -- on_fixed_update). Fewer ticks per move = faster snake.
 
 local MAX_TICKS_PER_MOVE = 10
-local MIN_TICKS_PER_MOVE = 4
+local MIN_TICKS_PER_MOVE = 7
 local STEPS_PER_TICKS_DECREASE = 5 -- every N points, shave one tick off the move interval
 
 -- ---------------------------------------------------------------------------
@@ -146,20 +146,19 @@ local function spawn_food()
 
 	local wx, wy = grid_to_world(gx, gy)
 	if food_entity then
-		engine.set_position(food_entity, wx, wy)
-	else
-		food_entity = engine.spawn_entity({
-			transform = {
-				x = wx,
-				y = wy,
-				scale_x = CELL_SIZE,
-				scale_y = CELL_SIZE,
-				rotation = 0,
-			},
-		})
-		-- Animated sprite: alternates between tiles 5 and 6 every 0.3s, looping.
-		engine.set_animated_sprite(food_entity, sheet, { 5, 6 }, 0.3, true)
+		engine.despawn(food_entity)
 	end
+	food_entity = engine.spawn_entity({
+		transform = {
+			x = wx,
+			y = wy,
+			scale_x = CELL_SIZE,
+			scale_y = CELL_SIZE,
+			rotation = 0,
+		},
+	})
+	-- Animated sprite: alternates between tiles 5 and 6 every 0.3s, looping.
+	engine.set_animated_sprite(food_entity, sheet, { 5, 6 }, 0.3, true)
 end
 
 -- ---------------------------------------------------------------------------
@@ -489,7 +488,9 @@ function on_start()
 	local tex = engine.load_texture(game_root .. "assets/snake.png")
 	sheet = engine.create_sprite_sheet(tex, 32, 32)
 
-	engine.set_camera(0, 0, 1.0)
+	engine.set_background_color(0.1, 0.1, 0.1, 1)
+
+	engine.set_camera(0, 0, 1)
 	engine.bind_action("up", "up")
 	engine.bind_action("up", "w")
 	engine.bind_action("down", "down")

@@ -6,7 +6,6 @@ pub const MAX_SPRITES: usize = 1000;
 pub const VERTEX_SIZE: usize = 8; // x, y, u, v, r, g, b, a
 pub const FLOATS_PER_SPRITE: usize = 4 * VERTEX_SIZE;
 pub const INDICES_PER_SPRITE: usize = 6;
-pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum BatchMode {

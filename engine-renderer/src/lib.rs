@@ -1,9 +1,13 @@
 use engine_math::{Camera2D, Transform2D, Vec2};
-#[cfg(all(feature = "opengl", not(target_arch = "wasm32")))]
-use winit::event_loop::ActiveEventLoop;
 
 pub mod batch;
+pub mod colors;
+
+#[cfg(all(feature = "opengl", not(target_arch = "wasm32")))]
 pub mod opengl;
+
+#[cfg(feature = "vulkan")]
+pub mod vulkan;
 
 #[cfg(all(feature = "opengl", feature = "vulkan"))]
 compile_error!(
@@ -61,6 +65,7 @@ pub trait Renderer {
     fn end_frame(&mut self);
     fn present(&mut self);
     fn resize(&mut self, width: u32, height: u32);
+    fn request_redraw(&self);
 
     fn set_camera(&mut self, camera: &Camera2D);
 
@@ -83,6 +88,8 @@ pub trait Renderer {
     fn draw_text(&mut self, text: &str, font: FontHandle, position: Vec2, color: [f32; 4]);
     fn measure_text(&self, text: &str, font: FontHandle) -> Vec2;
 
+    fn set_clear_color(&mut self, color: [f32; 4]);
+
     fn uv_for_tile(&self, sheet: SpriteSheetHandle, index: u32) -> UvRegion;
 
     fn clear_assets(&mut self);
@@ -94,17 +101,14 @@ pub struct UvRegion {
 }
 
 #[cfg(all(feature = "opengl", not(target_arch = "wasm32")))]
-pub fn create(
-    event_loop: &winit::event_loop::ActiveEventLoop,
-    title: &str,
-) -> (winit::window::Window, Box<dyn Renderer>) {
+pub fn create(event_loop: &winit::event_loop::ActiveEventLoop, title: &str) -> Box<dyn Renderer> {
     opengl::create_renderer(event_loop, title)
 }
 
-#[cfg(feature = "vulkan")]
-pub fn create(
-    event_loop: &winit::event_loop::ActiveEventLoop,
-    title: &str,
-) -> (winit::window::Window, Box<dyn Renderer>) {
-    vuklan::create_renderer(event_loop, title)
-}
+// #[cfg(feature = "vulkan")]
+// pub fn create(
+//     event_loop: &winit::event_loop::ActiveEventLoop,
+//     title: &str,
+// ) -> Box<dyn Renderer> {
+//     vulkan::create_renderer(event_loop, title)
+// }

@@ -11,8 +11,8 @@ use crate::{
 
 use engine_audio::{AudioAssets, AudioManager};
 use engine_ecs::World;
-use engine_input::{InputState, KeyCode};
-use engine_renderer::{Renderer, opengl::OpenGLRenderer};
+use engine_input::InputState;
+use engine_renderer::Renderer;
 use std::{
     sync::mpsc::Receiver,
     time::{Duration, Instant},
@@ -21,14 +21,13 @@ use winit::{
     application::ApplicationHandler,
     event::{MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
-    window::{Window, WindowId},
+    window::WindowId,
 };
 
 struct EngineRunner {
     app: Box<dyn crate::App>,
-    window: Option<Window>,
     size: (u32, u32),
-    renderer: Option<Box<dyn engine_renderer::Renderer>>,
+    renderer: Option<Box<dyn Renderer>>,
     input: InputState,
     world: World,
     last_frame_time: Option<Instant>,
@@ -38,18 +37,15 @@ struct EngineRunner {
     audio: AudioManager,
     audio_assets: AudioAssets,
     config: GameConfig,
-    reload_rx: Option<Receiver<()>>,
+    _reload_rx: Option<Receiver<()>>,
     save_data: SaveData,
 }
 
 impl ApplicationHandler for EngineRunner {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let (window, mut renderer) = engine_renderer::create(event_loop, &self.config.window_title);
-
-        window.request_redraw();
+        let renderer = engine_renderer::create(event_loop, &self.config.window_title);
 
         self.renderer = Some(renderer);
-        self.window = Some(window);
 
         self.schedule.add_fixed_system(systems::snapshot_system);
         self.schedule.add_fixed_system(systems::velocity_system);
@@ -74,7 +70,7 @@ impl ApplicationHandler for EngineRunner {
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        window_id: WindowId,
+        _window_id: WindowId,
         event: WindowEvent,
     ) {
         match event {
@@ -139,7 +135,7 @@ impl ApplicationHandler for EngineRunner {
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         let should_reload = self
             .app
             .as_any_mut()
@@ -242,8 +238,8 @@ impl ApplicationHandler for EngineRunner {
         self.app.on_update(&mut update_ctx);
         self.input.flush();
 
-        if let Some(w) = &self.window {
-            w.request_redraw();
+        if let Some(renderer) = &self.renderer {
+            renderer.request_redraw();
         }
 
         self.save_data.flush();
@@ -261,7 +257,6 @@ pub fn run(
 
     let mut runner = EngineRunner {
         app: Box::new(app),
-        window: None,
         size: (0, 0),
         renderer: None,
         input: InputState::new(),
@@ -279,7 +274,7 @@ pub fn run(
         audio: AudioManager::new(),
         audio_assets: AudioAssets::new(),
         config,
-        reload_rx: None,
+        _reload_rx: None,
         save_data,
     };
 

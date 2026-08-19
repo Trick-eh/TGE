@@ -22,7 +22,7 @@ pub struct LuaApp {
     script_path: PathBuf,
     persistent: HashMap<String, LuaData>,
     pub reload_rx: Receiver<()>,
-    watcher: RecommendedWatcher,
+    _watcher: RecommendedWatcher,
     pub last_reload: Instant,
 }
 
@@ -57,7 +57,7 @@ impl LuaApp {
             script_path,
             persistent: HashMap::new(),
             reload_rx: rx,
-            watcher,
+            _watcher: watcher,
             last_reload: Instant::now(),
         }
     }

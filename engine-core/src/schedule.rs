@@ -1,10 +1,4 @@
-use crate::{
-    contexts::{FixedContext, RenderContext, UpdateContext},
-    time::Time,
-};
-use engine_ecs::World;
-use engine_input::InputState;
-use engine_renderer::Renderer;
+use crate::contexts::{FixedContext, RenderContext, UpdateContext};
 
 pub type UpdateSystem = fn(&mut UpdateContext);
 pub type FixedSystem = fn(&mut FixedContext);

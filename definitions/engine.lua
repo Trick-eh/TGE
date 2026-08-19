@@ -267,4 +267,12 @@ engine.load_data = function(key) end
 ---@param paused boolean
 engine.set_paused = function(paused) end
 
+---Sets the window background color. By default, background color is [r,g,b,a] = [1,1,1,1] (black)
+---Only works inside on_start(), on_render() and on_background()
+---@param r number
+---@param g number
+---@param b number
+---@param a number
+engine.set_background_color = function(r, g, b, a) end
+
 return engine

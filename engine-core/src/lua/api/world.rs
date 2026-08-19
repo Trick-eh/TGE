@@ -1,6 +1,6 @@
 use crate::lua::api::{from_lua_value, to_lua_value};
 use crate::lua::context::{with_fixed_ctx, with_render_ctx, with_start_ctx, with_update_ctx};
-use engine_ecs::{Entity, LuaComponents, LuaData, Player, PreviousTransform, Velocity, World};
+use engine_ecs::{Entity, LuaComponents, Player, PreviousTransform, Velocity, World};
 use engine_math::{Transform2D, Vec2};
 use engine_renderer::{AnimatedSprite, Renderer, Sprite, SpriteSheetHandle, TextureHandle};
 use mlua::prelude::*;
@@ -532,7 +532,7 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
                         ActiveCamera,
                     ));
                 }
-            };
+            }
 
             with_start_ctx(|ctx| set_or_spawn(&mut ctx.world, x, y, zoom))
                 .or_else(|| with_update_ctx(|ctx| set_or_spawn(&mut ctx.world, x, y, zoom)));
@@ -592,7 +592,7 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
 
     engine.set(
         "set_paused",
-        lua.create_function(|_, (pause): (bool)| {
+        lua.create_function(|_, pause| {
             with_update_ctx(|ctx| {
                 ctx.time.is_paused = pause;
             })
@@ -601,6 +601,19 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
                     ctx.time.is_paused = pause;
                 })
             });
+            Ok(())
+        })?,
+    )?;
+
+    engine.set(
+        "set_background_color",
+        lua.create_function(|_, (r, g, b, a)| {
+            fn set_bg_color(renderer: &mut dyn Renderer, color: [f32; 4]) {
+                renderer.set_clear_color(color);
+            }
+
+            with_start_ctx(|ctx| set_bg_color(ctx.renderer, [r, g, b, a]))
+                .or_else(|| with_render_ctx(|ctx| set_bg_color(ctx.renderer, [r, g, b, a])));
             Ok(())
         })?,
     )?;

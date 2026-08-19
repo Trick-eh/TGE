@@ -17,7 +17,7 @@ pub struct GlyphInfo {
 pub struct FontAtlas {
     pub texture: Texture,
     pub glyphs: HashMap<char, GlyphInfo>,
-    pub size: f32,
+    pub _size: f32,
 }
 
 impl FontAtlas {
@@ -96,7 +96,7 @@ impl FontAtlas {
         FontAtlas {
             texture,
             glyphs,
-            size,
+            _size: size,
         }
     }
 

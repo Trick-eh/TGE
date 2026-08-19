@@ -1,4 +1,4 @@
-use crate::{contexts::StartContext, lua::context::with_persistent};
+use crate::lua::context::with_persistent;
 use engine_ecs::LuaData;
 use mlua::prelude::*;
 
