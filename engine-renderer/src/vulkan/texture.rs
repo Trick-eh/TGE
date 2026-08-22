@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use ash::vk;
 
-use crate::vulkan::buffers::create_buffer;
+use crate::{font_atlas::GlyphInfo, vulkan::buffers::create_buffer};
 
 pub struct TextureImage {
     pub image: vk::Image,
@@ -156,6 +158,7 @@ pub fn create_texture_image(
     pixels: &[u8],
     width: u32,
     height: u32,
+    format: vk::Format,
 ) -> TextureImage {
     let size = pixels.len() as vk::DeviceSize;
 
@@ -185,7 +188,7 @@ pub fn create_texture_image(
         })
         .mip_levels(1)
         .array_layers(1)
-        .format(vk::Format::R8G8B8A8_SRGB)
+        .format(format)
         .tiling(vk::ImageTiling::OPTIMAL)
         .initial_layout(vk::ImageLayout::UNDEFINED)
         .usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED)
@@ -296,4 +299,34 @@ pub fn create_sampler(device: &ash::Device) -> vk::Sampler {
         .mipmap_mode(vk::SamplerMipmapMode::NEAREST);
 
     unsafe { device.create_sampler(&sampler_info, None) }.expect("Failed to create sampler")
+}
+
+pub fn create_linear_sampler(device: &ash::Device) -> vk::Sampler {
+    let sampler_info = vk::SamplerCreateInfo::default()
+        .mag_filter(vk::Filter::LINEAR)
+        .min_filter(vk::Filter::LINEAR)
+        .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+        .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+        .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+        .anisotropy_enable(false)
+        .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+        .unnormalized_coordinates(false)
+        .compare_enable(false)
+        .compare_op(vk::CompareOp::ALWAYS)
+        .mipmap_mode(vk::SamplerMipmapMode::LINEAR);
+
+    unsafe { device.create_sampler(&sampler_info, None) }.expect("Failed to create sampler")
+}
+
+pub struct LoadedTexture {
+    pub image: TextureImage,
+    pub view: vk::ImageView,
+    pub descriptor_set: vk::DescriptorSet,
+}
+
+pub struct LoadedFont {
+    pub image: TextureImage,
+    pub view: vk::ImageView,
+    pub descriptor_set: vk::DescriptorSet,
+    pub glyphs: HashMap<char, GlyphInfo>,
 }

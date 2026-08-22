@@ -1,6 +1,6 @@
 use engine_math::{Transform2D, Vec2};
 
-use crate::{TextureHandle, UvRegion};
+use crate::{FontHandle, TextureHandle, UvRegion};
 
 pub const MAX_SPRITES: usize = 1000;
 pub const VERTEX_SIZE: usize = 8; // x, y, u, v, r, g, b, a
@@ -9,9 +9,10 @@ pub const INDICES_PER_SPRITE: usize = 6;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum BatchMode {
-    Empty,
     Textured(TextureHandle),
+    Text(FontHandle),
     Untextured,
+    Empty,
 }
 
 pub struct SpriteBatch {

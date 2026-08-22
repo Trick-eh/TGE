@@ -11,7 +11,7 @@ pub mod sync;
 pub mod texture;
 use commands::MAX_FRAMES_IN_FLIGHT;
 use device::QueueFamilyIndices;
-use engine_math::{Mat4, Transform2D};
+use engine_math::Mat4;
 use swapchain::SwapchainData;
 use sync::SyncObjects;
 
@@ -23,19 +23,20 @@ use winit::event_loop::ActiveEventLoop;
 use winit::raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use winit::window::Window;
 
-use crate::UvRegion;
-use crate::batch::{BatchMode, INDICES_PER_SPRITE, MAX_SPRITES, SpriteBatch};
+use crate::batch::{BatchMode, SpriteBatch};
 use crate::colors::BLACK;
+use crate::sprite_sheet::SpriteSheet;
+use crate::vulkan::texture::{LoadedFont, LoadedTexture};
 
 #[cfg(debug_assertions)]
-const ENABLE_VALIDATION: bool = true;
+const ENABLE_VALIDATION: bool = false;
 #[cfg(not(debug_assertions))]
 const ENABLE_VALIDATION: bool = false;
 
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
 
 pub struct VulkanRenderer {
-    entry: ash::Entry,
+    _entry: ash::Entry,
     pub instance: ash::Instance,
     surface_loader: ash::khr::surface::Instance,
     pub surface: vk::SurfaceKHR,
@@ -57,6 +58,7 @@ pub struct VulkanRenderer {
     pub placeholder_texture: texture::TextureImage,
     pub placeholder_view: vk::ImageView,
     pub sampler: vk::Sampler,
+    pub linear_sampler: vk::Sampler,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set: vk::DescriptorSet,
     pub current_frame: usize,
@@ -65,14 +67,13 @@ pub struct VulkanRenderer {
     window: Window,
 
     batch: SpriteBatch,
-    segments: Vec<BatchSegment>,
+    textures: Vec<LoadedTexture>,
+    sprite_sheets: Vec<SpriteSheet>,
+    fonts: Vec<LoadedFont>,
+    current_frame_vertex_offset: usize,
+    current_frame_index_offset: usize,
     cached_projection: Mat4,
     clear_color: [f32; 4],
-}
-pub struct BatchSegment {
-    pub mode: BatchMode,
-    pub index_start: u32,
-    pub index_count: u32,
 }
 
 impl VulkanRenderer {
@@ -198,7 +199,9 @@ impl VulkanRenderer {
         );
 
         let render_pass = render_pass::create_render_pass(&logical_device, swapchain.format);
-        println!("Render pass created");
+        if ENABLE_VALIDATION {
+            println!("Render pass created");
+        }
 
         let framebuffers = framebuffers::create_framebuffers(
             &logical_device,
@@ -206,29 +209,37 @@ impl VulkanRenderer {
             &swapchain.image_views,
             swapchain.extent,
         );
-        println!("Framebuffers created: {}", framebuffers.len());
+        if ENABLE_VALIDATION {
+            println!("Framebuffers created: {}", framebuffers.len());
+        }
 
         let descriptor_set_layout = pipeline::create_descriptor_set_layout(&logical_device);
         let pipeline_layout =
             pipeline::create_pipeline_layout(&logical_device, descriptor_set_layout);
         let pipeline =
             pipeline::create_graphics_pipeline(&logical_device, render_pass, pipeline_layout);
-        println!("Pipeline created");
+        if ENABLE_VALIDATION {
+            println!("Pipeline created");
+        }
 
         let command_pool =
             commands::create_command_pool(&logical_device, queue_families.graphics_family);
         let command_buffers = commands::allocate_command_buffers(&logical_device, command_pool);
-        println!(
-            "Command pool created, {} command buffers allocated",
-            command_buffers.len()
-        );
+        if ENABLE_VALIDATION {
+            println!(
+                "Command pool created, {} command buffers allocated",
+                command_buffers.len()
+            );
+        }
         let sync = sync::create_sync_objects(&logical_device, swapchain.images.len());
-        println!(
-            "Sync objects created: {} image-available, {} render-finished, {} fences",
-            sync.image_available_semaphores.len(),
-            sync.render_finished_semaphores.len(),
-            sync.in_flight_fences.len(),
-        );
+        if ENABLE_VALIDATION {
+            println!(
+                "Sync objects created: {} image-available, {} render-finished, {} fences",
+                sync.image_available_semaphores.len(),
+                sync.render_finished_semaphores.len(),
+                sync.in_flight_fences.len(),
+            );
+        }
 
         let batch_buffers = buffers::create_frame_batch_buffers(
             &instance,
@@ -236,7 +247,9 @@ impl VulkanRenderer {
             physical_device,
             MAX_FRAMES_IN_FLIGHT,
         );
-        println!("Batch buffers created: {} sets", batch_buffers.len());
+        if ENABLE_VALIDATION {
+            println!("Batch buffers created: {} sets", batch_buffers.len());
+        }
 
         let placeholder_pixels: [u8; 4] = [255, 255, 255, 255];
         let placeholder_texture = texture::create_texture_image(
@@ -248,13 +261,15 @@ impl VulkanRenderer {
             &placeholder_pixels,
             1,
             1,
+            vk::Format::R8G8B8A8_UNORM,
         );
         let placeholder_view = texture::create_image_view(
             &logical_device,
             placeholder_texture.image,
-            vk::Format::R8G8B8A8_SRGB,
+            vk::Format::R8G8B8A8_UNORM,
         );
         let sampler = texture::create_sampler(&logical_device);
+        let linear_sampler = texture::create_linear_sampler(&logical_device);
 
         let descriptor_pool = descriptor::create_descriptor_pool(&logical_device, 16);
         let descriptor_set = descriptor::create_descriptor_set(
@@ -264,10 +279,12 @@ impl VulkanRenderer {
             placeholder_view,
             sampler,
         );
-        println!("Placerholder texture + descriptor set created");
+        if ENABLE_VALIDATION {
+            println!("Placerholder texture + descriptor set created");
+        }
 
         VulkanRenderer {
-            entry,
+            _entry: entry,
             instance,
             surface_loader,
             surface,
@@ -289,6 +306,7 @@ impl VulkanRenderer {
             placeholder_texture,
             placeholder_view,
             sampler,
+            linear_sampler,
             descriptor_pool,
             descriptor_set,
             current_frame: 0,
@@ -296,7 +314,11 @@ impl VulkanRenderer {
             needs_recreation: false,
             window,
             batch: SpriteBatch::new(),
-            segments: Vec::new(),
+            textures: Vec::new(),
+            sprite_sheets: Vec::new(),
+            fonts: Vec::new(),
+            current_frame_vertex_offset: 0,
+            current_frame_index_offset: 0,
             cached_projection: Mat4::IDENTITY,
             clear_color: BLACK,
         }
@@ -343,44 +365,142 @@ impl VulkanRenderer {
             self.swapchain.extent,
         );
 
-        println!(
-            "Swapchain recreated: {} images, extent {}x{}",
-            self.swapchain.images.len(),
-            self.swapchain.extent.width,
-            self.swapchain.extent.height,
-        );
+        if ENABLE_VALIDATION {
+            println!(
+                "Swapchain recreated: {} images, extent {}x{}",
+                self.swapchain.images.len(),
+                self.swapchain.extent.width,
+                self.swapchain.extent.height,
+            );
+        }
     }
 
-    fn push_into_batch(
-        &mut self,
-        mode: BatchMode,
-        transform: &Transform2D,
-        uv: &UvRegion,
-        color: [f32; 4],
-    ) {
-        assert!(
-            self.batch.sprite_count < crate::batch::MAX_SPRITES,
-            "Exceeded MAX_SPRITES ({}) sprites in a single frame. \
-            dynamic buffer growth / multi-submission-per-frame is not implemented yet",
-            MAX_SPRITES
-        );
-
-        let needs_new_segment = match self.segments.last() {
-            Some(seg) => seg.mode != mode,
-            None => true,
-        };
-        if needs_new_segment {
-            self.segments.push(BatchSegment {
-                mode,
-                index_start: self.batch.indices.len() as u32,
-                index_count: 0,
-            });
+    fn flush_batch(&mut self) {
+        if self.batch.sprite_count == 0 {
+            return;
         }
 
-        self.batch.push_sprite(transform, uv, color);
+        let needed_verts = self.current_frame_vertex_offset + self.batch.vertices.len();
+        let needed_indices = self.current_frame_index_offset + self.batch.indices.len();
 
-        if let Some(seg) = self.segments.last_mut() {
-            seg.index_count += INDICES_PER_SPRITE as u32;
+        self.ensure_frame_buffer_capacity(needed_verts, needed_indices);
+
+        let fb = &self.batch_buffers[self.current_frame];
+        let command_buffer = self.command_buffers[self.current_frame];
+
+        let vertex_bytes_offset = self.current_frame_vertex_offset * std::mem::size_of::<f32>();
+        let index_bytes_offset = self.current_frame_index_offset * std::mem::size_of::<u32>();
+
+        unsafe {
+            let dst_vertex = (fb.vertex_mapped as *mut f32).add(self.current_frame_vertex_offset);
+            let dst_index = (fb.index_mapped as *mut u32).add(self.current_frame_index_offset);
+
+            std::ptr::copy_nonoverlapping(
+                self.batch.vertices.as_ptr(),
+                dst_vertex,
+                self.batch.vertices.len(),
+            );
+            std::ptr::copy_nonoverlapping(
+                self.batch.indices.as_ptr(),
+                dst_index,
+                self.batch.indices.len(),
+            );
+        }
+
+        unsafe {
+            self.logical_device.cmd_bind_vertex_buffers(
+                command_buffer,
+                0,
+                &[fb.vertex_buffer],
+                &[vertex_bytes_offset as vk::DeviceSize],
+            );
+            self.logical_device.cmd_bind_index_buffer(
+                command_buffer,
+                fb.index_buffer,
+                index_bytes_offset as vk::DeviceSize,
+                vk::IndexType::UINT32,
+            );
+        }
+
+        let projection_cols = self.cached_projection.to_cols_array();
+
+        let (use_texture, is_text) = match self.batch.mode {
+            BatchMode::Untextured => (0.0f32, 0.0f32),
+            BatchMode::Textured(_) => (1.0f32, 0.0f32),
+            BatchMode::Text(_) => (1.0f32, 1.0f32),
+            BatchMode::Empty => unreachable!(),
+        };
+
+        let mut push_data = [0u8; 72];
+        for (i, f) in projection_cols.iter().enumerate() {
+            push_data[i * 4..i * 4 + 4].copy_from_slice(&f.to_ne_bytes());
+        }
+        push_data[64..68].copy_from_slice(&use_texture.to_ne_bytes());
+        push_data[68..72].copy_from_slice(&is_text.to_ne_bytes());
+
+        unsafe {
+            self.logical_device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                0,
+                &[self.descriptor_set_for_mode(self.batch.mode)],
+                &[],
+            );
+            self.logical_device.cmd_push_constants(
+                command_buffer,
+                self.pipeline_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                &push_data,
+            );
+            self.logical_device.cmd_draw_indexed(
+                command_buffer,
+                self.batch.indices.len() as u32,
+                1,
+                0,
+                0,
+                0,
+            );
+        }
+
+        self.current_frame_vertex_offset += self.batch.vertices.len();
+        self.current_frame_index_offset += self.batch.indices.len();
+
+        self.batch.clear();
+    }
+
+    fn ensure_frame_buffer_capacity(&mut self, required_vertices: usize, required_indices: usize) {
+        let fb = &mut self.batch_buffers[self.current_frame];
+
+        let vertex_bytes_needed = required_vertices * std::mem::size_of::<f32>();
+        let index_bytes_needed = required_indices * std::mem::size_of::<u32>();
+
+        if fb.vertex_buffer_capacity < vertex_bytes_needed
+            || fb.index_buffer_capacity < index_bytes_needed
+        {
+            unsafe {
+                self.logical_device.device_wait_idle().ok();
+            }
+            let new_vertex_cap = (fb.vertex_buffer_capacity * 2).max(vertex_bytes_needed);
+            let new_index_cap = (fb.index_buffer_capacity * 2).max(index_bytes_needed);
+            buffers::reallocate_frame_batch_buffers(
+                &self.instance,
+                &self.logical_device,
+                self.physical_device,
+                fb,
+                new_vertex_cap,
+                new_index_cap,
+            )
+        }
+    }
+
+    fn descriptor_set_for_mode(&self, mode: BatchMode) -> vk::DescriptorSet {
+        match mode {
+            BatchMode::Untextured => self.descriptor_set,
+            BatchMode::Textured(handle) => self.textures[handle.0 as usize].descriptor_set,
+            BatchMode::Text(handle) => self.fonts[handle.0 as usize].descriptor_set,
+            BatchMode::Empty => unreachable!("flush_batch never runs against an Empty mode batch"),
         }
     }
 }
@@ -394,8 +514,19 @@ impl Drop for VulkanRenderer {
 
             buffers::destroy_frame_batch_buffers(&self.logical_device, &self.batch_buffers);
 
+            for texture in &self.textures {
+                self.logical_device.destroy_image_view(texture.view, None);
+                texture::destroy_texture_image(&self.logical_device, &texture.image);
+            }
+            for font in &self.fonts {
+                self.logical_device.destroy_image_view(font.view, None);
+                texture::destroy_texture_image(&self.logical_device, &font.image);
+            }
+
             self.logical_device
                 .destroy_descriptor_pool(self.descriptor_pool, None);
+            self.logical_device
+                .destroy_sampler(self.linear_sampler, None);
             self.logical_device.destroy_sampler(self.sampler, None);
             self.logical_device
                 .destroy_image_view(self.placeholder_view, None);
@@ -437,4 +568,8 @@ impl Drop for VulkanRenderer {
             self.instance.destroy_instance(None);
         }
     }
+}
+
+pub fn create_renderer(event_loop: &ActiveEventLoop, title: &str) -> Box<dyn crate::Renderer> {
+    Box::new(VulkanRenderer::new(event_loop, title))
 }

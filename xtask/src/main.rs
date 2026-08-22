@@ -7,10 +7,16 @@ fn main() {
 
     match task.as_str() {
         "build" => build(),
-        "run" => run(env::args()
-            .nth(2)
-            .unwrap_or_else(|| "".to_string())
-            .as_str()),
+        "run" => run(
+            env::args()
+                .nth(2)
+                .unwrap_or_else(|| "".to_string())
+                .as_str(),
+            env::args()
+                .nth(3)
+                .unwrap_or_else(|| "opengl".to_string())
+                .as_str(),
+        ),
         "check" => check(),
         "init-lua-project" => init_lua_project(),
         "no xtask command" => {
@@ -28,10 +34,26 @@ fn build() {
     cargo(&["build", "--package", "engine-core"]);
 }
 
-fn run(game: &str) {
-    match game {
-        "test" => cargo(&["run", "--package", "game-example"]),
-        "snake" => cargo(&["run", "--package", "snake-clone"]),
+fn run(game: &str, renderer: &str) {
+    match (game, renderer) {
+        ("test", "opengl") => cargo(&["run", "--package", "game-example"]),
+        ("test", "vulkan") => cargo(&[
+            "run",
+            "--package",
+            "game-example",
+            "--no-default-features",
+            "--features",
+            "vulkan",
+        ]),
+        ("snake", "opengl") => cargo(&["run", "--package", "snake-clone"]),
+        ("snake", "vulkan") => cargo(&[
+            "run",
+            "--package",
+            "snake-clone",
+            "--no-default-features",
+            "--features",
+            "vulkan",
+        ]),
         _ => println!("There is no runnable package called {}", game),
     }
 }

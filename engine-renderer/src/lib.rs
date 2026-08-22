@@ -2,6 +2,8 @@ use engine_math::{Camera2D, Transform2D, Vec2};
 
 pub mod batch;
 pub mod colors;
+pub mod font_atlas;
+pub mod sprite_sheet;
 
 #[cfg(all(feature = "opengl", not(target_arch = "wasm32")))]
 pub mod opengl;
@@ -105,10 +107,7 @@ pub fn create(event_loop: &winit::event_loop::ActiveEventLoop, title: &str) -> B
     opengl::create_renderer(event_loop, title)
 }
 
-// #[cfg(feature = "vulkan")]
-// pub fn create(
-//     event_loop: &winit::event_loop::ActiveEventLoop,
-//     title: &str,
-// ) -> Box<dyn Renderer> {
-//     vulkan::create_renderer(event_loop, title)
-// }
+#[cfg(feature = "vulkan")]
+pub fn create(event_loop: &winit::event_loop::ActiveEventLoop, title: &str) -> Box<dyn Renderer> {
+    vulkan::create_renderer(event_loop, title)
+}

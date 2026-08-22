@@ -6,11 +6,9 @@ use crate::{
     FontHandle, Renderer, SpriteSheetHandle, TextureHandle, UvRegion,
     batch::{BatchMode, MAX_SPRITES},
     colors::WHITE,
-    opengl::{
-        OpenGLRenderer,
-        font::FontAtlas,
-        texture::{SpriteSheet, Texture},
-    },
+    font_atlas::measure_text,
+    opengl::{OpenGLRenderer, font::FontAtlas, texture::Texture},
+    sprite_sheet::SpriteSheet,
 };
 
 impl Renderer for OpenGLRenderer {
@@ -84,7 +82,7 @@ impl Renderer for OpenGLRenderer {
 
         if self.batch.sprite_count >= MAX_SPRITES {
             self.flush_batch();
-            self.batch.mode;
+            self.batch.mode = target_mode;
         }
 
         let uv = UvRegion {
@@ -92,10 +90,6 @@ impl Renderer for OpenGLRenderer {
             max: Vec2::ONE,
         };
         self.batch.push_sprite(transform, &uv, [r, g, b, a]);
-
-        unsafe {
-            self.gl.uniform_1_i32(self.uniform_use_texture.as_ref(), 1);
-        }
     }
 
     fn load_texture(&mut self, bytes: &[u8]) -> crate::TextureHandle {
@@ -115,7 +109,7 @@ impl Renderer for OpenGLRenderer {
         texture: crate::TextureHandle,
         tile_width: u32,
         tile_height: u32,
-    ) -> crate::SpriteSheetHandle {
+    ) -> SpriteSheetHandle {
         let texture_index = texture.0 as usize;
         let texture_width = self.textures.get(texture_index).unwrap().width;
         let texture_height = self.textures.get(texture_index).unwrap().height;
@@ -132,7 +126,7 @@ impl Renderer for OpenGLRenderer {
         SpriteSheetHandle(index as u32)
     }
 
-    fn uv_for_tile(&self, sheet: crate::SpriteSheetHandle, index: u32) -> UvRegion {
+    fn uv_for_tile(&self, sheet: SpriteSheetHandle, index: u32) -> UvRegion {
         let sprite_sheet = self.sprite_sheets.get(sheet.0 as usize).unwrap();
 
         sprite_sheet.uv_for_tile(index)
@@ -168,35 +162,26 @@ impl Renderer for OpenGLRenderer {
     }
 
     fn draw_text(&mut self, text: &str, font: FontHandle, position: Vec2, color: [f32; 4]) {
-        if self.batch.sprite_count > 0 {
+        let target_mode = BatchMode::Text(font);
+
+        if self.batch.sprite_count > 0 && self.batch.mode != target_mode {
             self.flush_batch();
         }
-
-        let atlas = match self.fonts.get(font.0 as usize) {
-            Some(a) => a,
-            None => {
-                eprintln!("draw_text: invalid FontHandle");
-                return;
-            }
-        };
-
-        unsafe {
-            self.gl.use_program(Some(self.shader_program));
-            self.gl.uniform_1_i32(self.uniform_is_text.as_ref(), 1);
-            self.gl.uniform_1_i32(self.uniform_use_texture.as_ref(), 1);
-            self.gl.active_texture(glow::TEXTURE0);
-            self.gl
-                .bind_texture(glow::TEXTURE_2D, Some(atlas.texture.handle));
-        }
+        self.batch.mode = target_mode;
 
         let mut cursor_x = position.x;
 
         for c in text.chars() {
-            let Some(glyph) = atlas.glyphs.get(&c) else {
+            let Some(glyph) = self.fonts[font.0 as usize].glyphs.get(&c).copied() else {
                 continue;
             };
 
             if glyph.width > 0.0 && glyph.height > 0.0 {
+                if self.batch.sprite_count >= MAX_SPRITES {
+                    self.flush_batch();
+                    self.batch.mode = target_mode;
+                }
+
                 let x = cursor_x + glyph.offset_x + glyph.width / 2.0;
                 let y = position.y + glyph.offset_y + glyph.height / 2.0;
 
@@ -215,20 +200,11 @@ impl Renderer for OpenGLRenderer {
 
             cursor_x += glyph.advance;
         }
-
-        self.flush_batch_with_bound_texture();
-
-        unsafe {
-            self.gl.uniform_1_i32(self.uniform_is_text.as_ref(), 0);
-            self.gl.uniform_1_i32(self.uniform_use_texture.as_ref(), 0);
-            self.gl.bind_texture(glow::TEXTURE_2D, None);
-        }
-        self.batch.mode = BatchMode::Empty;
     }
 
     fn measure_text(&self, text: &str, font: FontHandle) -> Vec2 {
         match self.fonts.get(font.0 as usize) {
-            Some(atlas) => atlas.measure_text(text),
+            Some(atlas) => measure_text(&atlas.glyphs, text),
             None => Vec2::ZERO,
         }
     }

@@ -63,13 +63,44 @@ pub fn create_buffer(
     (buffer, memory)
 }
 
+fn create_mapped_buffer(
+    instance: &ash::Instance,
+    device: &ash::Device,
+    physical_device: vk::PhysicalDevice,
+    size: vk::DeviceSize,
+    usage: vk::BufferUsageFlags,
+) -> (vk::Buffer, vk::DeviceMemory, *mut c_void) {
+    let (buffer, memory) = create_buffer(
+        instance,
+        device,
+        physical_device,
+        size,
+        usage,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    );
+    let mapped = unsafe { device.map_memory(memory, 0, size, vk::MemoryMapFlags::empty()) }
+        .expect("Failed to map buffer memory");
+
+    (buffer, memory, mapped)
+}
+
+pub struct RetiredBuffer {
+    pub buffer: vk::Buffer,
+    pub memory: vk::DeviceMemory,
+}
+
 pub struct FrameBatchBuffers {
     pub vertex_buffer: vk::Buffer,
     vertex_memory: vk::DeviceMemory,
     pub vertex_mapped: *mut c_void,
+    pub vertex_buffer_capacity: usize,
+
     pub index_buffer: vk::Buffer,
     index_memory: vk::DeviceMemory,
     pub index_mapped: *mut c_void,
+    pub index_buffer_capacity: usize,
+
+    pub pending_retirement: Vec<RetiredBuffer>,
 }
 
 pub fn create_frame_batch_buffers(
@@ -78,52 +109,111 @@ pub fn create_frame_batch_buffers(
     physical_device: vk::PhysicalDevice,
     count: usize,
 ) -> Vec<FrameBatchBuffers> {
-    let vertex_size = (MAX_SPRITES * FLOATS_PER_SPRITE * size_of::<f32>()) as vk::DeviceSize;
-    let index_size = (MAX_SPRITES * INDICES_PER_SPRITE * size_of::<u32>()) as vk::DeviceSize;
+    let initial_vertex_size =
+        (MAX_SPRITES * FLOATS_PER_SPRITE * size_of::<f32>()) as vk::DeviceSize;
+    let initial_index_size =
+        (MAX_SPRITES * INDICES_PER_SPRITE * size_of::<u32>()) as vk::DeviceSize;
 
     (0..count)
         .map(|_| {
-            let (vertex_buffer, vertex_memory) = create_buffer(
+            let (vertex_buffer, vertex_memory, vertex_mapped) = create_mapped_buffer(
                 instance,
                 device,
                 physical_device,
-                vertex_size,
+                initial_vertex_size,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             );
-            let vertex_mapped = unsafe {
-                device.map_memory(vertex_memory, 0, vertex_size, vk::MemoryMapFlags::empty())
-            }
-            .expect("Failed to map vertex buffer memory");
 
-            let (index_buffer, index_memory) = create_buffer(
+            let (index_buffer, index_memory, index_mapped) = create_mapped_buffer(
                 instance,
                 device,
                 physical_device,
-                index_size,
+                initial_index_size,
                 vk::BufferUsageFlags::INDEX_BUFFER,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             );
-            let index_mapped = unsafe {
-                device.map_memory(index_memory, 0, index_size, vk::MemoryMapFlags::empty())
-            }
-            .expect("Failed to map index buffer memory");
 
             FrameBatchBuffers {
                 vertex_buffer,
                 vertex_memory,
                 vertex_mapped,
+                vertex_buffer_capacity: initial_vertex_size as usize,
                 index_buffer,
                 index_memory,
                 index_mapped,
+                index_buffer_capacity: initial_index_size as usize,
+                pending_retirement: Vec::new(),
             }
         })
         .collect()
 }
 
+pub fn reallocate_frame_batch_buffers(
+    instance: &ash::Instance,
+    device: &ash::Device,
+    physical_device: vk::PhysicalDevice,
+    fb: &mut FrameBatchBuffers,
+    new_vertex_capacity: usize,
+    new_index_capacity: usize,
+) {
+    let (new_vertex_buffer, new_vertex_memory, new_vertex_mapped) = create_mapped_buffer(
+        instance,
+        device,
+        physical_device,
+        new_vertex_capacity as vk::DeviceSize,
+        vk::BufferUsageFlags::VERTEX_BUFFER,
+    );
+    let (new_index_buffer, new_index_memory, new_index_mapped) = create_mapped_buffer(
+        instance,
+        device,
+        physical_device,
+        new_index_capacity as vk::DeviceSize,
+        vk::BufferUsageFlags::INDEX_BUFFER,
+    );
+
+    fb.pending_retirement.push(RetiredBuffer {
+        buffer: fb.vertex_buffer,
+        memory: fb.vertex_memory,
+    });
+    fb.pending_retirement.push(RetiredBuffer {
+        buffer: fb.index_buffer,
+        memory: fb.index_memory,
+    });
+
+    fb.vertex_buffer = new_vertex_buffer;
+    fb.vertex_memory = new_vertex_memory;
+    fb.vertex_mapped = new_vertex_mapped;
+    fb.vertex_buffer_capacity = new_vertex_capacity;
+
+    fb.index_buffer = new_index_buffer;
+    fb.index_memory = new_index_memory;
+    fb.index_mapped = new_index_mapped;
+    fb.index_buffer_capacity = new_index_capacity;
+
+    println!(
+        "Batch buffer grown: vertex {} bytes, index {} bytes",
+        new_vertex_capacity, new_index_capacity
+    );
+}
+
+pub fn release_retired_buffers(device: &ash::Device, fb: &mut FrameBatchBuffers) {
+    for retired in fb.pending_retirement.drain(..) {
+        unsafe {
+            device.unmap_memory(retired.memory);
+            device.destroy_buffer(retired.buffer, None);
+            device.free_memory(retired.memory, None);
+        }
+    }
+}
+
 pub fn destroy_frame_batch_buffers(device: &ash::Device, buffers: &[FrameBatchBuffers]) {
     for fb in buffers {
         unsafe {
+            for retired in &fb.pending_retirement {
+                device.unmap_memory(retired.memory);
+                device.destroy_buffer(retired.buffer, None);
+                device.free_memory(retired.memory, None);
+            }
+
             device.unmap_memory(fb.vertex_memory);
             device.destroy_buffer(fb.vertex_buffer, None);
             device.free_memory(fb.vertex_memory, None);

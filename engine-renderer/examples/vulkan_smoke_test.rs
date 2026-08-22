@@ -39,18 +39,24 @@ impl ApplicationHandler for SmokeTest {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(vulkan) = &mut self.vulkan {
-                    vulkan.draw_colored_rect(
-                        &Transform2D {
-                            position: Vec2 { x: 0.0, y: 0.0 },
-                            rotation_in_radians: 0.0,
-                            scale: Vec2 { x: 1.0, y: 0.5 },
-                        },
-                        1.0,
-                        0.0,
-                        0.0,
-                        1.0,
-                    );
                     vulkan.begin_frame();
+                    for i in 0..1001 {
+                        vulkan.draw_colored_rect(
+                            &Transform2D {
+                                position: Vec2 {
+                                    x: i as f32 / 1000.0,
+                                    y: 0.0,
+                                },
+                                rotation_in_radians: 0.0,
+                                scale: Vec2 { x: 0.1, y: 0.1 },
+                            },
+                            1.0,
+                            0.0,
+                            0.0,
+                            1.0,
+                        );
+                    }
+
                     vulkan.end_frame();
                     vulkan.present();
                     vulkan.request_redraw(); // keep the loop going

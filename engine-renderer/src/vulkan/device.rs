@@ -2,6 +2,8 @@ use std::ffi::CStr;
 
 use ash::vk;
 
+use crate::vulkan::ENABLE_VALIDATION;
+
 #[derive(Clone, Copy, Debug)]
 pub struct QueueFamilyIndices {
     pub graphics_family: u32,
@@ -168,10 +170,12 @@ pub fn pick_physical_device(
 
         let properties = unsafe { instance.get_physical_device_properties(device) };
         let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) };
-        println!(
-            "Vulkan candidate device: {:?} (type: {:?}, score: {})",
-            name, properties.device_type, score
-        );
+        if ENABLE_VALIDATION {
+            println!(
+                "Vulkan candidate device: {:?} (type: {:?}, score: {})",
+                name, properties.device_type, score
+            );
+        }
 
         if best.is_none_or(|(_, _, best_score)| score > best_score) {
             best = Some((device, indices, score));
@@ -183,13 +187,15 @@ pub fn pick_physical_device(
 
     let properties = unsafe { instance.get_physical_device_properties(device) };
     let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) };
-    println!(
-        "Selected Vulkan device: {:?} (graphics family: {}, present family: {}, single queue: {})",
-        name,
-        indices.graphics_family,
-        indices.present_family,
-        indices.is_single_queue()
-    );
+    if ENABLE_VALIDATION {
+        println!(
+            "Selected Vulkan device: {:?} (graphics family: {}, present family: {}, single queue: {})",
+            name,
+            indices.graphics_family,
+            indices.present_family,
+            indices.is_single_queue()
+        );
+    }
 
     (device, indices)
 }

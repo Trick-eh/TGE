@@ -1,7 +1,10 @@
 use ash::vk;
 use winit::window::Window;
 
-use crate::vulkan::device::{self, QueueFamilyIndices};
+use crate::vulkan::{
+    ENABLE_VALIDATION,
+    device::{self, QueueFamilyIndices},
+};
 
 pub struct SwapchainData {
     pub loader: ash::khr::swapchain::Device,
@@ -16,7 +19,7 @@ fn choose_surface_format(available: &[vk::SurfaceFormatKHR]) -> vk::SurfaceForma
     available
         .iter()
         .find(|f| {
-            f.format == vk::Format::B8G8R8A8_SRGB
+            f.format == vk::Format::B8G8R8A8_UNORM
                 && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
         })
         .copied()
@@ -132,14 +135,16 @@ pub fn create_swapchain(
 
     let image_views = create_image_views(device, &images, surface_format.format);
 
-    println!(
-        "Swapchain created: {} images, format {:?}, present mode {:?}, extent {}x{}",
-        images.len(),
-        surface_format.format,
-        present_mode,
-        extent.width,
-        extent.height
-    );
+    if ENABLE_VALIDATION {
+        println!(
+            "Swapchain created: {} images, format {:?}, present mode {:?}, extent {}x{}",
+            images.len(),
+            surface_format.format,
+            present_mode,
+            extent.width,
+            extent.height
+        );
+    }
 
     SwapchainData {
         loader,

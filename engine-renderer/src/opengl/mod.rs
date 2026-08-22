@@ -2,16 +2,14 @@ mod font;
 mod renderer_impl;
 pub mod texture;
 
+use crate::sprite_sheet::SpriteSheet;
 use crate::{
     Renderer,
     batch::{
         BatchMode, FLOATS_PER_SPRITE, INDICES_PER_SPRITE, MAX_SPRITES, SpriteBatch, VERTEX_SIZE,
     },
     colors::BLACK,
-    opengl::{
-        font::FontAtlas,
-        texture::{SpriteSheet, Texture},
-    },
+    opengl::{font::FontAtlas, texture::Texture},
 };
 
 use engine_math::Mat4;
@@ -200,41 +198,6 @@ impl OpenGLRenderer {
         }
     }
 
-    fn flush_batch_with_bound_texture(&mut self) {
-        if self.batch.sprite_count == 0 {
-            return;
-        }
-
-        let gl = &self.gl;
-        unsafe {
-            gl.bind_vertex_array(Some(self.quad.vao));
-            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.quad.vbo));
-            gl.buffer_sub_data_u8_slice(
-                glow::ARRAY_BUFFER,
-                0,
-                bytemuck::cast_slice(&self.batch.vertices),
-            );
-            gl.buffer_sub_data_u8_slice(
-                glow::ELEMENT_ARRAY_BUFFER,
-                0,
-                bytemuck::cast_slice(&self.batch.indices),
-            );
-
-            gl.uniform_matrix_4_f32_slice(
-                self.uniform_projection.as_ref(),
-                false,
-                &self.cached_projection.to_cols_array(),
-            );
-            gl.draw_elements(
-                glow::TRIANGLES,
-                (self.batch.sprite_count * 6) as i32,
-                glow::UNSIGNED_INT,
-                0,
-            );
-        }
-        self.batch.clear();
-    }
-
     fn flush_batch(&mut self) {
         if self.batch.sprite_count == 0 {
             return;
@@ -260,14 +223,25 @@ impl OpenGLRenderer {
             match self.batch.mode {
                 BatchMode::Textured(texture_handle) => {
                     gl.uniform_1_i32(self.uniform_use_texture.as_ref(), 1);
+                    gl.uniform_1_i32(self.uniform_is_text.as_ref(), 0);
                     gl.active_texture(glow::TEXTURE0);
                     gl.bind_texture(
                         glow::TEXTURE_2D,
                         Some(self.textures[texture_handle.0 as usize].handle),
                     );
                 }
+                BatchMode::Text(font_handle) => {
+                    gl.uniform_1_i32(self.uniform_use_texture.as_ref(), 1);
+                    gl.uniform_1_i32(self.uniform_is_text.as_ref(), 1);
+                    gl.active_texture(glow::TEXTURE0);
+                    gl.bind_texture(
+                        glow::TEXTURE_2D,
+                        Some(self.fonts[font_handle.0 as usize].texture.handle),
+                    )
+                }
                 BatchMode::Untextured => {
                     gl.uniform_1_i32(self.uniform_use_texture.as_ref(), 0);
+                    gl.uniform_1_i32(self.uniform_is_text.as_ref(), 0);
                 }
                 BatchMode::Empty => {}
             }

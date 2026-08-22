@@ -9,6 +9,7 @@
 	  - sprites:    load_texture / create_sprite_sheet / set_sprite / set_animated_sprite
 	  - text:       load_font / draw_text / measure_text
 	  - shapes:     draw_rect
+      - background: set_background_color
 	  - audio:      load_sound / play_sound
 	  - camera:     set_camera
 	  - simulation: set_paused
@@ -43,7 +44,7 @@ local CELL_SIZE = 32
 -- on_fixed_update). Fewer ticks per move = faster snake.
 
 local MAX_TICKS_PER_MOVE = 10
-local MIN_TICKS_PER_MOVE = 7
+local MIN_TICKS_PER_MOVE = 6
 local STEPS_PER_TICKS_DECREASE = 5 -- every N points, shave one tick off the move interval
 
 -- ---------------------------------------------------------------------------
@@ -58,6 +59,8 @@ local queued_direction = nil -- input received since the last move, applied next
 local food = { x = 0, y = 0 }
 local segment_entities = {} -- entity ids, parallel array to `snake`
 local food_entity = nil
+
+local window_width, window_height = (GRID_W + 3) * CELL_SIZE, (GRID_H + 3) * CELL_SIZE
 
 local tick_count = 0
 local alive = true
@@ -398,7 +401,7 @@ local function show_game_over_screen()
 	local score_size = engine.measure_text(score_text, font)
 	local restart_size = engine.measure_text(restart_text, font)
 
-	engine.draw_rect(0, 0, 2000, 1000, 0, 0, 0, 0.8)
+	engine.draw_rect(0, 0, window_width, window_height, 0.1, 0.1, 0.1, 0.8)
 	engine.draw_text(gameover_text, title_font, -gameover_size.x, GRID_H * CELL_SIZE / 5, 1, 0, 0, 1)
 	engine.draw_text(score_text, font, -score_size.x / 2, -GRID_H * CELL_SIZE / 5, 1, 1, 0, 1)
 	engine.draw_text(restart_text, font, -restart_size.x / 2, 0, 1, 0.5, 0, 1)
@@ -411,7 +414,7 @@ local function show_game_paused_screen()
 	local paused_size = engine.measure_text(paused_text, font)
 	local continue_size = engine.measure_text(continue_text, font)
 
-	engine.draw_rect(0, 0, 2000, 1000, 0, 0, 0, 0.8)
+	engine.draw_rect(0, 0, window_width, window_height, 0.1, 0.1, 0.1, 0.8)
 	engine.draw_text(paused_text, title_font, -paused_size.x, GRID_H * CELL_SIZE / 5, 1, 0, 0, 1)
 	engine.draw_text(continue_text, font, -continue_size.x / 2, -GRID_H * CELL_SIZE / 5, 1, 0.5, 0, 1)
 end
@@ -561,6 +564,11 @@ function on_fixed_update(dt)
 		update_visuals()
 		set_segment_velocities(prev_snake, dt)
 	end
+end
+
+function on_resize(width, height)
+	window_width = width
+	window_height = height
 end
 
 function on_render()
