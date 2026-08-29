@@ -5,6 +5,7 @@
 	exposes to Lua is used here at least once:
 
 	  - input:      bind_action / is_action_pressed / is_action_held
+	  - text entry: start_text_input / get_text_input / set_text_input / stop_text_input
 	  - entities:   spawn_entity / despawn / set_position / set_velocity
 	  - sprites:    load_texture / create_sprite_sheet / set_sprite / set_animated_sprite
 	  - text:       load_font / draw_text / measure_text
@@ -46,6 +47,7 @@ local CELL_SIZE = 32
 local MAX_TICKS_PER_MOVE = 10
 local MIN_TICKS_PER_MOVE = 6
 local STEPS_PER_TICKS_DECREASE = 5 -- every N points, shave one tick off the move interval
+local NAME_MAX_LEN = 12 -- engine has no built-in cap; enforced here each frame
 
 -- ---------------------------------------------------------------------------
 -- Game state
@@ -67,6 +69,8 @@ local alive = true
 local paused = false
 local score = 0
 local high_score = 0
+local high_score_name = ""
+local entering_name = false -- true while the post-game-over name field is active
 
 local sheet -- SpriteSheetHandle for snake.png
 local font -- FontHandle for UI text
@@ -183,6 +187,15 @@ local function init_game()
 	queued_direction = nil
 	tick_count = 0
 
+	-- Defensive: restart is only reachable when entering_name is false (see
+	-- on_update), so this shouldn't normally be needed, but it's cheap
+	-- insurance against ever restarting mid name-entry with capture still
+	-- active.
+	if entering_name then
+		engine.stop_text_input()
+		entering_name = false
+	end
+
 	despawn_entities()
 
 	local cx = math.floor(GRID_W / 2)
@@ -225,15 +238,34 @@ local function check_collision(hx, hy, tail_will_move)
 	end
 end
 
+-- ---------------------------------------------------------------------------
+-- High score / name entry
+--
+-- The save itself is deferred until the name is actually submitted (see
+-- finish_name_entry), so `high_score` and `high_score_name` in save_data
+-- always change together -- never a stale name paired with a new score, or
+-- vice versa.
+-- ---------------------------------------------------------------------------
+
 local function on_death()
 	engine.play_sound("death")
 
 	if score > high_score then
 		high_score = score
-		-- save_data persists to disk and survives process restarts, unlike
-		-- engine.persist (which only survives Lua hot-reloads during dev mode).
-		engine.save_data("high_score", high_score)
+		entering_name = true
+		engine.start_text_input("")
 	end
+end
+
+local function finish_name_entry()
+	local typed = engine.get_text_input()
+	high_score_name = (typed ~= "") and typed or "???"
+
+	engine.stop_text_input()
+	entering_name = false
+
+	engine.save_data("high_score", high_score)
+	engine.save_data("high_score_name", high_score_name)
 end
 
 -- ---------------------------------------------------------------------------
@@ -392,30 +424,48 @@ local function draw_game_background()
 	end
 end
 
-local function show_game_over_screen()
+local function show_game_over_menu()
 	local gameover_text = "Game Over!"
 	local score_text = "You achieved " .. score .. " points!"
-	local restart_text = "Press space to restart"
 
-	local gameover_size = engine.measure_text(gameover_text, font)
+	local gameover_size = engine.measure_text(gameover_text, title_font)
 	local score_size = engine.measure_text(score_text, font)
-	local restart_size = engine.measure_text(restart_text, font)
 
 	engine.draw_rect(0, 0, window_width, window_height, 0.1, 0.1, 0.1, 0.8)
-	engine.draw_text(gameover_text, title_font, -gameover_size.x, GRID_H * CELL_SIZE / 5, 1, 0, 0, 1)
+	engine.draw_text(gameover_text, title_font, -gameover_size.x / 2, GRID_H * CELL_SIZE / 5, 1, 0, 0, 1)
 	engine.draw_text(score_text, font, -score_size.x / 2, -GRID_H * CELL_SIZE / 5, 1, 1, 0, 1)
-	engine.draw_text(restart_text, font, -restart_size.x / 2, 0, 1, 0.5, 0, 1)
+
+	if entering_name then
+		local prompt_text = "New high score! Enter your name:"
+		local prompt_size = engine.measure_text(prompt_text, font)
+		engine.draw_text(prompt_text, font, -prompt_size.x / 2, 0, 1, 1, 0, 1)
+
+		-- Trailing "_" so the field doesn't look inert while empty or
+		-- between keystrokes -- this engine has no cursor blink/caret
+		-- rendering built in, so a static marker is the simplest cue.
+		local typed = engine.get_text_input() .. "_"
+		local typed_size = engine.measure_text(typed, font)
+		engine.draw_text(typed, font, -typed_size.x / 2, 24, 1, 1, 1, 1)
+
+		local hint_text = "Press Enter to confirm"
+		local hint_size = engine.measure_text(hint_text, font)
+		engine.draw_text(hint_text, font, -hint_size.x / 2, 48, 0.7, 0.7, 0.7, 1)
+	else
+		local restart_text = "Press space to restart"
+		local restart_size = engine.measure_text(restart_text, font)
+		engine.draw_text(restart_text, font, -restart_size.x / 2, 0, 1, 0.5, 0, 1)
+	end
 end
 
-local function show_game_paused_screen()
+local function show_pause_menu()
 	local paused_text = "Game paused"
 	local continue_text = "Press space to continue playing"
 
-	local paused_size = engine.measure_text(paused_text, font)
+	local paused_size = engine.measure_text(paused_text, title_font)
 	local continue_size = engine.measure_text(continue_text, font)
 
 	engine.draw_rect(0, 0, window_width, window_height, 0.1, 0.1, 0.1, 0.8)
-	engine.draw_text(paused_text, title_font, -paused_size.x, GRID_H * CELL_SIZE / 5, 1, 0, 0, 1)
+	engine.draw_text(paused_text, title_font, -paused_size.x / 2, GRID_H * CELL_SIZE / 5, 1, 0, 0, 1)
 	engine.draw_text(continue_text, font, -continue_size.x / 2, -GRID_H * CELL_SIZE / 5, 1, 0.5, 0, 1)
 end
 
@@ -433,7 +483,9 @@ local function show_game_ui()
 		1
 	)
 
-	local hs_text = "Best: " .. math.floor(high_score)
+	local hs_text = "Best: "
+		.. math.floor(high_score)
+		.. (high_score_name ~= "" and (" (" .. high_score_name .. ")") or "")
 	local hs_size = engine.measure_text(hs_text, font)
 	engine.draw_text(
 		hs_text,
@@ -475,6 +527,13 @@ local function show_game_ui()
 	)
 end
 
+local function show_main_menu()
+	local game_title_text = "Snakey"
+	local game_title_size = engine.measure_text(game_title_text, title_font)
+
+	engine.draw_text(game_title_text, title_font, -game_title_size.x / 2, GRID_H * CELL_SIZE / 5, 0, 1, 0, 1)
+end
+
 -- ---------------------------------------------------------------------------
 -- Lifecycle
 -- ---------------------------------------------------------------------------
@@ -483,6 +542,7 @@ function on_start()
 	font = engine.load_font(game_root .. "assets/font.ttf", 24)
 	title_font = engine.load_font(game_root .. "assets/font.ttf", 48)
 	high_score = engine.load_data("high_score") or 0
+	high_score_name = engine.load_data("high_score_name") or ""
 
 	math.randomseed(os.time())
 	engine.load_sound("eat", game_root .. "assets/eat.wav")
@@ -511,6 +571,25 @@ function on_start()
 end
 
 function on_update(dt)
+	if entering_name then
+		-- Enforce the length cap here since the engine has no concept of
+		-- one -- truncate anything the player types past it. Otherwise,
+		-- deliberately check ONLY for Enter and nothing else: restart/pause
+		-- share the space key with a perfectly valid name character, so
+		-- checking those actions here (even just to ignore them) risks the
+		-- same frame's space keypress being read twice for two different
+		-- purposes. Returning early avoids that entirely.
+		local typed = engine.get_text_input()
+		if #typed > NAME_MAX_LEN then
+			engine.set_text_input(typed:sub(1, NAME_MAX_LEN))
+		end
+
+		if engine.is_key_pressed("enter") then
+			finish_name_entry()
+		end
+		return
+	end
+
 	if not alive then
 		if engine.is_action_pressed("restart") then
 			init_game()
@@ -575,10 +654,10 @@ function on_render()
 	if alive then
 		show_game_ui()
 		if paused then
-			show_game_paused_screen()
+			show_pause_menu()
 		end
 	else
-		show_game_over_screen()
+		show_game_over_menu()
 	end
 end
 

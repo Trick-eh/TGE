@@ -1,4 +1,4 @@
-use crate::lua::context::{with_start_ctx, with_update_ctx};
+use crate::lua::context::{with_fixed_ctx, with_render_ctx, with_start_ctx, with_update_ctx};
 use engine_input::{GamepadAxis, GamepadButton, InputBinding, InputState, KeyCode, MouseButton};
 use mlua::prelude::*;
 
@@ -190,10 +190,64 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
         })?,
     )?;
 
+    engine.set(
+        "start_text_input",
+        lua.create_function(|_, initial: Option<String>| {
+            let initial = initial.unwrap_or_default();
+            with_start_ctx(|ctx| ctx.input.start_text_input(&initial))
+                .or_else(|| with_update_ctx(|ctx| ctx.input.start_text_input(&initial)))
+                .or_else(|| with_fixed_ctx(|ctx| ctx.input.start_text_input(&initial)));
+            Ok(())
+        })?,
+    )?;
+
+    engine.set(
+        "stop_text_input",
+        lua.create_function(|_, ()| {
+            with_start_ctx(|ctx| ctx.input.stop_text_input())
+                .or_else(|| with_update_ctx(|ctx| ctx.input.stop_text_input()))
+                .or_else(|| with_fixed_ctx(|ctx| ctx.input.stop_text_input()));
+            Ok(())
+        })?,
+    )?;
+
+    engine.set(
+        "is_text_input_active",
+        lua.create_function(|_, ()| {
+            Ok(with_start_ctx(|ctx| ctx.input.is_text_input_active())
+                .or_else(|| with_update_ctx(|ctx| ctx.input.is_text_input_active()))
+                .or_else(|| with_fixed_ctx(|ctx| ctx.input.is_text_input_active()))
+                .or_else(|| with_render_ctx(|ctx| ctx.input.is_text_input_active()))
+                .unwrap_or(false))
+        })?,
+    )?;
+
+    engine.set(
+        "get_text_input",
+        lua.create_function(|_, ()| {
+            Ok(
+                with_start_ctx(|ctx| ctx.input.text_input_buffer().to_string())
+                    .or_else(|| with_update_ctx(|ctx| ctx.input.text_input_buffer().to_string()))
+                    .or_else(|| with_fixed_ctx(|ctx| ctx.input.text_input_buffer().to_string()))
+                    .or_else(|| with_render_ctx(|ctx| ctx.input.text_input_buffer().to_string()))
+                    .unwrap_or_default(),
+            )
+        })?,
+    )?;
+
+    engine.set(
+        "set_text_input",
+        lua.create_function(|_, text: String| {
+            with_start_ctx(|ctx| ctx.input.set_text_input_buffer(&text))
+                .or_else(|| with_update_ctx(|ctx| ctx.input.set_text_input_buffer(&text)))
+                .or_else(|| with_fixed_ctx(|ctx| ctx.input.set_text_input_buffer(&text)))
+                .or_else(|| with_render_ctx(|ctx| ctx.input.set_text_input_buffer(&text)));
+            Ok(())
+        })?,
+    )?;
+
     Ok(())
 }
-
-// --- string → engine type converters ---
 
 fn convert_key(key: &str) -> Option<KeyCode> {
     match key {

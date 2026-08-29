@@ -103,11 +103,19 @@ pub struct UvRegion {
 }
 
 #[cfg(all(feature = "opengl", not(target_arch = "wasm32")))]
-pub fn create(event_loop: &winit::event_loop::ActiveEventLoop, title: &str) -> Box<dyn Renderer> {
-    opengl::create_renderer(event_loop, title)
+pub fn create(
+    event_loop: &winit::event_loop::ActiveEventLoop,
+    title: &str,
+    vsync: bool,
+) -> Box<dyn Renderer> {
+    opengl::create_renderer(event_loop, title, vsync)
 }
 
 #[cfg(feature = "vulkan")]
-pub fn create(event_loop: &winit::event_loop::ActiveEventLoop, title: &str) -> Box<dyn Renderer> {
-    vulkan::create_renderer(event_loop, title)
+pub fn create(
+    event_loop: &winit::event_loop::ActiveEventLoop,
+    title: &str,
+    vsync: bool,
+) -> Box<dyn Renderer> {
+    vulkan::create_renderer(event_loop, title, vsync)
 }

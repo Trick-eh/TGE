@@ -6,8 +6,9 @@ use winit::{
 use engine_input::{KeyCode, MouseButton};
 
 /// returns None if the key is not supported
-pub fn convert_key(event: KeyEvent) -> Option<(KeyCode, bool)> {
+pub fn convert_key(event: KeyEvent) -> Option<(KeyCode, bool, Option<String>)> {
     let pressed = event.state == ElementState::Pressed;
+    let text = event.text.as_ref().map(|s| s.to_string());
     let key = match event.physical_key {
         PhysicalKey::Code(code) => match code {
             // letters
@@ -91,7 +92,7 @@ pub fn convert_key(event: KeyEvent) -> Option<(KeyCode, bool)> {
         // non-standard key (no scancode mapping)
         PhysicalKey::Unidentified(_) => KeyCode::Other(0),
     };
-    Some((key, pressed))
+    Some((key, pressed, text))
 }
 
 pub fn convert_mouse_button(button: WinitMouseButton, state: ElementState) -> (MouseButton, bool) {

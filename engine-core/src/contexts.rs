@@ -37,4 +37,5 @@ pub struct RenderContext<'a> {
     pub time: &'a mut Time,
     pub renderer: &'a mut dyn Renderer,
     pub audio: &'a mut AudioManager,
+    pub input: &'a mut InputState,
 }

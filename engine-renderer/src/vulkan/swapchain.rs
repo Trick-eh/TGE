@@ -26,9 +26,13 @@ fn choose_surface_format(available: &[vk::SurfaceFormatKHR]) -> vk::SurfaceForma
         .unwrap_or(available[0])
 }
 
-fn choose_present_mode(available: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
-    if available.contains(&vk::PresentModeKHR::MAILBOX) {
+fn choose_present_mode(available: &[vk::PresentModeKHR], vsync: bool) -> vk::PresentModeKHR {
+    if vsync {
+        vk::PresentModeKHR::FIFO
+    } else if available.contains(&vk::PresentModeKHR::MAILBOX) {
         vk::PresentModeKHR::MAILBOX
+    } else if available.contains(&vk::PresentModeKHR::IMMEDIATE) {
+        vk::PresentModeKHR::IMMEDIATE
     } else {
         vk::PresentModeKHR::FIFO
     }
@@ -87,11 +91,12 @@ pub fn create_swapchain(
     physical_device: vk::PhysicalDevice,
     queue_families: QueueFamilyIndices,
     window: &Window,
+    vsync: bool,
 ) -> SwapchainData {
     let support = device::query_swapchain_support(surface_loader, physical_device, surface);
 
     let surface_format = choose_surface_format(&support.formats);
-    let present_mode = choose_present_mode(&support.present_modes);
+    let present_mode = choose_present_mode(&support.present_modes, vsync);
     let extent = choose_swap_extent(&support.capabilities, window);
 
     let mut image_count = support.capabilities.min_image_count + 1;

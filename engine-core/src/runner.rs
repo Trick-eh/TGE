@@ -11,7 +11,7 @@ use crate::{
 
 use engine_audio::{AudioAssets, AudioManager};
 use engine_ecs::World;
-use engine_input::InputState;
+use engine_input::{InputState, KeyCode};
 use engine_renderer::Renderer;
 use std::{
     sync::mpsc::Receiver,
@@ -43,7 +43,8 @@ struct EngineRunner {
 
 impl ApplicationHandler for EngineRunner {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let renderer = engine_renderer::create(event_loop, &self.config.window_title);
+        let renderer =
+            engine_renderer::create(event_loop, &self.config.window_title, self.config.vsync);
 
         self.renderer = Some(renderer);
 
@@ -98,8 +99,16 @@ impl ApplicationHandler for EngineRunner {
                 if is_synthetic {
                     return;
                 }
-                if let Some((key, pressed)) = convert_key(key_event) {
+                if let Some((key, pressed, text)) = convert_key(key_event) {
                     self.input.process_key_event(key, pressed);
+
+                    if pressed {
+                        if key == KeyCode::Backspace {
+                            self.input.text_input_backspace();
+                        } else if let Some(text) = text {
+                            self.input.process_text_input(&text);
+                        }
+                    }
                 }
             }
             WindowEvent::CloseRequested => {
@@ -115,6 +124,7 @@ impl ApplicationHandler for EngineRunner {
                         time: &mut self.time,
                         renderer: renderer.as_mut(),
                         audio: &mut self.audio,
+                        input: &mut self.input,
                     };
                     self.app.on_background(&mut render_ctx);
                     self.schedule.run_render(&mut render_ctx);

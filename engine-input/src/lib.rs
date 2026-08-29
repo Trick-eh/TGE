@@ -11,6 +11,8 @@ pub struct InputState {
     scroll_delta: Vec2,
     action_map: ActionMap,
     gilrs: Option<gilrs::Gilrs>,
+    text_input_active: bool,
+    text_input_buffer: String,
 }
 
 pub struct ActionMap {
@@ -159,6 +161,8 @@ impl InputState {
             gamepad_buttons: HashMap::new(),
             gamepad_axes: HashMap::new(),
             gilrs: gilrs::Gilrs::new().ok(),
+            text_input_active: false,
+            text_input_buffer: String::new(),
         }
     }
 
@@ -240,6 +244,38 @@ impl InputState {
     }
     pub fn scroll_delta(&self) -> Vec2 {
         self.scroll_delta
+    }
+
+    pub fn start_text_input(&mut self, initial: &str) {
+        self.text_input_active = true;
+        self.text_input_buffer = initial.to_string();
+    }
+    pub fn stop_text_input(&mut self) {
+        self.text_input_active = false;
+    }
+    pub fn is_text_input_active(&self) -> bool {
+        self.text_input_active
+    }
+    pub fn text_input_buffer(&self) -> &str {
+        &self.text_input_buffer
+    }
+    pub fn set_text_input_buffer(&mut self, text: &str) {
+        self.text_input_buffer = text.to_string();
+    }
+    pub fn process_text_input(&mut self, text: &str) {
+        if !self.text_input_active {
+            return;
+        }
+        for c in text.chars() {
+            if !c.is_control() {
+                self.text_input_buffer.push(c);
+            }
+        }
+    }
+    pub fn text_input_backspace(&mut self) {
+        if self.text_input_active {
+            self.text_input_buffer.pop();
+        }
     }
 
     pub fn is_action_held(&self, action: &str) -> bool {

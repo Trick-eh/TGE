@@ -275,4 +275,24 @@ engine.set_paused = function(paused) end
 ---@param a number
 engine.set_background_color = function(r, g, b, a) end
 
+---Begins capturing typed text into an internal buffer (backspace deletes
+---the last character). Does NOT affect normal key state -- is_key_held
+---etc. keep working independently, so gate other input yourself (e.g.
+---pause movement) if typing shouldn't also drive gameplay.
+---@param initial string|nil Starting text, defaults to empty
+engine.start_text_input = function(initial) end
+
+---Stops capturing. The buffer itself is left intact -- read it with
+---get_text_input before stopping if you need the final value.
+engine.stop_text_input = function() end
+
+---@return boolean
+engine.is_text_input_active = function() end
+
+---@return string
+engine.get_text_input = function() end
+
+---@param text string
+engine.set_text_input = function(text) end
+
 return engine

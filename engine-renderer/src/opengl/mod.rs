@@ -14,6 +14,7 @@ use crate::{
 
 use engine_math::Mat4;
 use glow::{HasContext, UniformLocation};
+use glutin::surface::{GlSurface, SwapInterval};
 use glutin::{
     config::{ConfigTemplateBuilder, GlConfig},
     context::{ContextAttributesBuilder, NotCurrentGlContext, PossiblyCurrentContext},
@@ -274,7 +275,11 @@ unsafe fn compile_shader(gl: &glow::Context, shader_type: u32, source: &str) -> 
     }
 }
 
-pub fn create_renderer(event_loop: &ActiveEventLoop, title: &str) -> Box<dyn crate::Renderer> {
+pub fn create_renderer(
+    event_loop: &ActiveEventLoop,
+    title: &str,
+    vsync: bool,
+) -> Box<dyn crate::Renderer> {
     let template_builder = ConfigTemplateBuilder::new();
     let display_builder = DisplayBuilder::new()
         .with_window_attributes(Some(Window::default_attributes().with_title(title)));
@@ -311,6 +316,15 @@ pub fn create_renderer(event_loop: &ActiveEventLoop, title: &str) -> Box<dyn cra
     };
 
     let gl_context = not_current_ctx.make_current(&gl_surface).unwrap();
+
+    let swap_interval = if vsync {
+        SwapInterval::Wait(std::num::NonZero::new(1).unwrap())
+    } else {
+        SwapInterval::DontWait
+    };
+    if let Err(e) = gl_surface.set_swap_interval(&gl_context, swap_interval) {
+        eprintln!("Failed to set swap interval (vsync={vsync}): {e:?}");
+    }
 
     let gl = unsafe {
         glow::Context::from_loader_function(|s| {

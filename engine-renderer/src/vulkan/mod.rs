@@ -29,7 +29,7 @@ use crate::sprite_sheet::SpriteSheet;
 use crate::vulkan::texture::{LoadedFont, LoadedTexture};
 
 #[cfg(debug_assertions)]
-const ENABLE_VALIDATION: bool = false;
+const ENABLE_VALIDATION: bool = true;
 #[cfg(not(debug_assertions))]
 const ENABLE_VALIDATION: bool = false;
 
@@ -64,6 +64,7 @@ pub struct VulkanRenderer {
     pub current_frame: usize,
     pub current_image_index: u32,
     pub needs_recreation: bool,
+    pub vsync: bool,
     window: Window,
 
     batch: SpriteBatch,
@@ -77,7 +78,7 @@ pub struct VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn new(event_loop: &ActiveEventLoop, title: &str) -> VulkanRenderer {
+    pub fn new(event_loop: &ActiveEventLoop, title: &str, vsync: bool) -> VulkanRenderer {
         let entry = unsafe { ash::Entry::load() }
             .expect("Failed to load Vulkan entry point -- is a Vulkan driver/loader installed");
 
@@ -196,6 +197,7 @@ impl VulkanRenderer {
             physical_device,
             queue_families,
             &window,
+            vsync,
         );
 
         let render_pass = render_pass::create_render_pass(&logical_device, swapchain.format);
@@ -312,7 +314,9 @@ impl VulkanRenderer {
             current_frame: 0,
             current_image_index: 0,
             needs_recreation: false,
+            vsync,
             window,
+
             batch: SpriteBatch::new(),
             textures: Vec::new(),
             sprite_sheets: Vec::new(),
@@ -356,6 +360,7 @@ impl VulkanRenderer {
             self.physical_device,
             self.queue_families,
             &self.window,
+            self.vsync,
         );
 
         self.framebuffers = framebuffers::create_framebuffers(
@@ -570,6 +575,10 @@ impl Drop for VulkanRenderer {
     }
 }
 
-pub fn create_renderer(event_loop: &ActiveEventLoop, title: &str) -> Box<dyn crate::Renderer> {
-    Box::new(VulkanRenderer::new(event_loop, title))
+pub fn create_renderer(
+    event_loop: &ActiveEventLoop,
+    title: &str,
+    vsync: bool,
+) -> Box<dyn crate::Renderer> {
+    Box::new(VulkanRenderer::new(event_loop, title, vsync))
 }
