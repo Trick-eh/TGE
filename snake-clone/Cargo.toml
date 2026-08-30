@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 engine-core = { version = "0.1.0", path = "../engine-core", default-features = false }
+rust-embed = "8"
 
 [features]
 default = ["opengl"]

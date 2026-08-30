@@ -7,8 +7,10 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
         "load_sound",
         lua.create_function(|_, (name, path): (String, String)| {
             with_start_ctx(|ctx| {
-                let bytes = std::fs::read(&path)
-                    .unwrap_or_else(|_| panic!("Failed to read sound file: {}", path));
+                let bytes = ctx
+                    .asset_source
+                    .read(&path)
+                    .unwrap_or_else(|| panic!("Failed to read sound file: {}", path));
                 let handle = ctx.audio.load_sound(bytes);
                 ctx.audio_assets.add_sound(&name, handle);
             });
@@ -21,8 +23,10 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
         lua.create_function(|_, (name, path): (String, String)| {
             with_start_ctx(|ctx| {
                 println!("{}", "game-example".to_owned() + &path);
-                let bytes = std::fs::read(&path)
-                    .unwrap_or_else(|_| panic!("Failed to read music file: {}", path));
+                let bytes = ctx
+                    .asset_source
+                    .read(&path)
+                    .unwrap_or_else(|| panic!("Failed to read music file: {}", path));
                 let handle = ctx.audio.load_music(bytes);
                 ctx.audio_assets.add_music(&name, handle);
             });

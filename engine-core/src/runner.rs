@@ -1,5 +1,5 @@
 use crate::{
-    GameConfig,
+    AssetSource, GameConfig,
     contexts::{FixedContext, RenderContext, StartContext, UpdateContext},
     converter::{convert_key, convert_mouse_button},
     lua::LuaApp,
@@ -39,6 +39,7 @@ struct EngineRunner {
     config: GameConfig,
     _reload_rx: Option<Receiver<()>>,
     save_data: SaveData,
+    asset_source: Box<dyn AssetSource>,
 }
 
 impl ApplicationHandler for EngineRunner {
@@ -64,6 +65,7 @@ impl ApplicationHandler for EngineRunner {
                 input: &mut self.input,
                 audio_assets: &mut self.audio_assets,
                 save_data: &mut self.save_data,
+                asset_source: self.asset_source.as_ref(),
             });
         }
     }
@@ -125,6 +127,7 @@ impl ApplicationHandler for EngineRunner {
                         renderer: renderer.as_mut(),
                         audio: &mut self.audio,
                         input: &mut self.input,
+                        asset_source: self.asset_source.as_ref(),
                     };
                     self.app.on_background(&mut render_ctx);
                     self.schedule.run_render(&mut render_ctx);
@@ -151,14 +154,17 @@ impl ApplicationHandler for EngineRunner {
             .as_any_mut()
             .downcast_mut::<LuaApp>()
             .map(|app| {
-                let has_event = app.reload_rx.try_recv().is_ok();
+                let Some(rx) = app.reload_rx.as_ref() else {
+                    return false;
+                };
+                let has_event = rx.try_recv().is_ok();
                 if has_event {
                     eprintln!(
                         "DEBUG: file change event received, elapsed={:?}",
                         app.last_reload.elapsed()
                     );
                 }
-                while app.reload_rx.try_recv().is_ok() {}
+                while rx.try_recv().is_ok() {}
 
                 if has_event && app.last_reload.elapsed() > Duration::from_millis(200) {
                     eprintln!("DEBUG: triggering reload");
@@ -189,6 +195,7 @@ impl ApplicationHandler for EngineRunner {
                     schedule: &mut self.schedule,
                     input: &mut self.input,
                     save_data: &mut self.save_data,
+                    asset_source: self.asset_source.as_ref(),
                 };
 
                 if let Some(lua_app) = self.app.as_any_mut().downcast_mut::<LuaApp>() {
@@ -228,6 +235,7 @@ impl ApplicationHandler for EngineRunner {
                 audio_assets: &mut self.audio_assets,
                 input: &mut self.input,
                 save_data: &mut self.save_data,
+                asset_source: self.asset_source.as_ref(),
             };
             self.schedule.run_fixed(&mut fixed_ctx);
             self.app.on_fixed_update(&mut fixed_ctx);
@@ -243,6 +251,7 @@ impl ApplicationHandler for EngineRunner {
             audio_assets: &mut self.audio_assets,
             config: &self.config,
             save_data: &mut self.save_data,
+            asset_source: self.asset_source.as_ref(),
         };
         self.schedule.run_update(&mut update_ctx);
         self.app.on_update(&mut update_ctx);
@@ -259,6 +268,7 @@ impl ApplicationHandler for EngineRunner {
 pub fn run(
     app: impl crate::App + 'static,
     config: GameConfig,
+    asset_source: impl AssetSource + 'static,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
@@ -286,6 +296,7 @@ pub fn run(
         config,
         _reload_rx: None,
         save_data,
+        asset_source: Box::new(asset_source),
     };
 
     runner.audio.set_master_volume(runner.config.master_volume);

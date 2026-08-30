@@ -3,7 +3,7 @@ use engine_ecs::World;
 use engine_input::InputState;
 use engine_renderer::Renderer;
 
-use crate::{GameConfig, SystemSchedule, Time, save::SaveData};
+use crate::{AssetSource, GameConfig, SystemSchedule, Time, save::SaveData};
 
 pub struct StartContext<'a> {
     pub schedule: &'a mut SystemSchedule,
@@ -14,6 +14,7 @@ pub struct StartContext<'a> {
     pub audio: &'a mut AudioManager,
     pub audio_assets: &'a mut AudioAssets,
     pub save_data: &'a mut SaveData,
+    pub asset_source: &'a dyn AssetSource,
 }
 pub struct UpdateContext<'a> {
     pub world: &'a mut World,
@@ -23,6 +24,7 @@ pub struct UpdateContext<'a> {
     pub audio_assets: &'a AudioAssets,
     pub config: &'a GameConfig,
     pub save_data: &'a mut SaveData,
+    pub asset_source: &'a dyn AssetSource,
 }
 pub struct FixedContext<'a> {
     pub world: &'a mut World,
@@ -31,6 +33,7 @@ pub struct FixedContext<'a> {
     pub audio_assets: &'a AudioAssets,
     pub input: &'a mut InputState,
     pub save_data: &'a mut SaveData,
+    pub asset_source: &'a dyn AssetSource,
 }
 pub struct RenderContext<'a> {
     pub world: &'a mut World,
@@ -38,4 +41,5 @@ pub struct RenderContext<'a> {
     pub renderer: &'a mut dyn Renderer,
     pub audio: &'a mut AudioManager,
     pub input: &'a mut InputState,
+    pub asset_source: &'a dyn AssetSource,
 }

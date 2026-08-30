@@ -31,7 +31,7 @@
 	  on_stop()            -- once, on window close
 ]]
 
-local game_root = "snake-clone/"
+local game_root = ""
 
 -- ---------------------------------------------------------------------------
 -- Tunables

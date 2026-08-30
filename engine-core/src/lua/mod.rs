@@ -19,29 +19,38 @@ pub const LUA_DEFINITIONS: &str = include_str!("../../../definitions/engine.lua"
 
 pub struct LuaApp {
     lua: Lua,
-    script_path: PathBuf,
+    script_path: String,
     persistent: HashMap<String, LuaData>,
-    pub reload_rx: Receiver<()>,
-    _watcher: RecommendedWatcher,
+    pub reload_rx: Option<Receiver<()>>,
+    _watcher: Option<RecommendedWatcher>,
     pub last_reload: Instant,
 }
 
 impl LuaApp {
-    pub fn new(script_path: impl Into<PathBuf>) -> Self {
-        let script_path = script_path.into();
-        let (tx, rx) = channel::<()>();
+    pub fn new(script_path: impl Into<String>) -> Self {
+        LuaApp {
+            lua: Lua::new(),
+            script_path: script_path.into(),
+            persistent: HashMap::new(),
+            reload_rx: None,
+            _watcher: None,
+            last_reload: Instant::now(),
+        }
+    }
 
-        let tx_clone = tx.clone();
-        let watch_path = script_path.clone();
-        let watch_dir = script_path
+    pub fn with_hot_reload(mut self) -> Self {
+        let watch_path = PathBuf::from(&self.script_path);
+        let watch_dir = watch_path
             .parent()
             .expect("Script path has no parent")
             .to_path_buf();
 
+        let (tx, rx) = channel::<()>();
+        let tx_clone = tx.clone();
+
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
             if let Ok(event) = res {
-                let is_script = event.paths.iter().any(|p| p == &watch_path);
-                if is_script {
+                if event.paths.iter().any(|p| p == &watch_path) {
                     let _ = tx_clone.send(());
                 }
             }
@@ -52,14 +61,10 @@ impl LuaApp {
             .watch(&watch_dir, RecursiveMode::NonRecursive)
             .expect("Failed to watch directory");
 
-        LuaApp {
-            lua: Lua::new(),
-            script_path,
-            persistent: HashMap::new(),
-            reload_rx: rx,
-            _watcher: watcher,
-            last_reload: Instant::now(),
-        }
+        self.reload_rx = Some(rx);
+        self._watcher = Some(watcher);
+
+        self
     }
 
     fn call_lua_fn<A: IntoLuaMulti>(&self, name: &str, args: A) {
@@ -96,14 +101,14 @@ impl LuaApp {
         let script = {
             let mut attempts = 0;
             loop {
-                match std::fs::read_to_string(&self.script_path) {
-                    Ok(s) => break s,
-                    Err(e) => {
+                match ctx.asset_source.read_to_string(&self.script_path) {
+                    Some(s) => break s,
+                    None => {
                         attempts += 1;
                         if attempts >= 10 {
                             eprintln!(
-                                "Hot reload: failed to read script after {} attempts: {}",
-                                attempts, e
+                                "Hot reload: failed to read script after {} attempts",
+                                attempts
                             );
                             return;
                         }
@@ -136,7 +141,10 @@ impl App for LuaApp {
             eprintln!("Failed to register Lua API: {}", e);
             return;
         }
-        let script = std::fs::read_to_string(&self.script_path).expect("Failed to read Lua script");
+        let script = ctx
+            .asset_source
+            .read_to_string(&self.script_path)
+            .unwrap_or_else(|| panic!("Failed to read Lua script: {}", self.script_path));
 
         if let Err(e) = self.lua.load(&script).exec() {
             eprintln!("Lua script error: {}", e);

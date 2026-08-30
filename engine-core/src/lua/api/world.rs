@@ -544,8 +544,10 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
         "load_texture",
         lua.create_function(|_, path: String| {
             let index = with_start_ctx(|ctx| {
-                let bytes = std::fs::read(&path)
-                    .unwrap_or_else(|_| panic!("Failed to read texture: {}", path));
+                let bytes = ctx
+                    .asset_source
+                    .read(&path)
+                    .unwrap_or_else(|| panic!("Failed to read texture: {}", path));
                 ctx.renderer.load_texture(&bytes).to_lua_id()
             });
             Ok(index)

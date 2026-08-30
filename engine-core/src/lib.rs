@@ -1,3 +1,4 @@
+mod assets;
 mod contexts;
 mod converter;
 pub mod lua;
@@ -7,6 +8,7 @@ mod schedule;
 mod systems;
 mod time;
 
+pub use crate::assets::{AssetSource, FilesystemAssets};
 pub use crate::contexts::*;
 pub use crate::runner::run;
 pub use crate::schedule::SystemSchedule;

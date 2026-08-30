@@ -9,8 +9,10 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
         "load_font",
         lua.create_function(|_, (path, size): (String, f32)| {
             let index = with_start_ctx(|ctx| {
-                let bytes = std::fs::read(&path)
-                    .unwrap_or_else(|_| panic!("Failed to read font: {}", path));
+                let bytes = ctx
+                    .asset_source
+                    .read(&path)
+                    .unwrap_or_else(|| panic!("Failed to read font: {}", path));
                 ctx.renderer.load_font(&bytes, size).to_lua_id()
             });
             Ok(index)
