@@ -4,8 +4,7 @@ A 2D game engine written in Rust, scriptable via Lua or native Rust code, with
 interchangeable OpenGL and Vulkan rendering backends. Built as a learning
 project.
 
-> Status: actively under construction. See [Project Status](#project-status)
-> below for what's implemented vs. planned.
+> Status: See [Project Status](#project-status).
 
 ## Features
 
