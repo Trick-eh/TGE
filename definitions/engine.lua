@@ -295,4 +295,7 @@ engine.get_text_input = function() end
 ---@param text string
 engine.set_text_input = function(text) end
 
+-- Requests the engine to exit the event loop
+engine.request_exit = function() end
+
 return engine

@@ -564,6 +564,7 @@ function on_start()
 	engine.bind_action("right", "d")
 	engine.bind_action("restart", "space")
 	engine.bind_action("pause", "space")
+	engine.bind_action("request_exit", "x")
 
 	engine.set_paused(false)
 
@@ -619,6 +620,10 @@ function on_update(dt)
 		queued_direction = { x = -1, y = 0 }
 	elseif engine.is_action_pressed("right") and direction.x == 0 then
 		queued_direction = { x = 1, y = 0 }
+	end
+
+	if engine.is_action_pressed("request_exit") then
+		engine.request_exit()
 	end
 end
 

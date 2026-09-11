@@ -620,6 +620,20 @@ pub fn register(lua: &Lua, engine: &LuaTable) -> LuaResult<()> {
         })?,
     )?;
 
+    engine.set(
+        "request_exit",
+        lua.create_function(|_, ()| {
+            fn request_exit(exit_ref: &mut bool) {
+                *exit_ref = true;
+            }
+
+            with_update_ctx(|ctx| request_exit(ctx.is_exit_requested))
+                .or_else(|| with_fixed_ctx(|ctx| request_exit(ctx.is_exit_requested)));
+
+            Ok(())
+        })?,
+    )?;
+
     Ok(())
 }
 
@@ -675,8 +689,6 @@ fn spawn_from_table(world: &mut World, components: &LuaTable) -> Entity {
     } else {
         None
     };
-
-    // let entity = world.spawn(());
 
     let entity = match (transform, velocity, is_player, lua_components) {
         (Some(t), Some(v), true, Some(lc)) => world.spawn((t, v, Player, lc)),

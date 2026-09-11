@@ -40,6 +40,7 @@ struct EngineRunner {
     _reload_rx: Option<Receiver<()>>,
     save_data: SaveData,
     asset_source: Box<dyn AssetSource>,
+    is_exit_requested: bool,
 }
 
 impl ApplicationHandler for EngineRunner {
@@ -76,6 +77,13 @@ impl ApplicationHandler for EngineRunner {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        if self.is_exit_requested {
+            self.app.on_stop();
+            self.save_data.flush();
+            event_loop.exit();
+            return;
+        }
+
         match event {
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 MouseScrollDelta::LineDelta(x, y) => {
@@ -236,6 +244,7 @@ impl ApplicationHandler for EngineRunner {
                 input: &mut self.input,
                 save_data: &mut self.save_data,
                 asset_source: self.asset_source.as_ref(),
+                is_exit_requested: &mut self.is_exit_requested,
             };
             self.schedule.run_fixed(&mut fixed_ctx);
             self.app.on_fixed_update(&mut fixed_ctx);
@@ -252,6 +261,7 @@ impl ApplicationHandler for EngineRunner {
             config: &self.config,
             save_data: &mut self.save_data,
             asset_source: self.asset_source.as_ref(),
+            is_exit_requested: &mut self.is_exit_requested,
         };
         self.schedule.run_update(&mut update_ctx);
         self.app.on_update(&mut update_ctx);
@@ -297,6 +307,7 @@ pub fn run(
         _reload_rx: None,
         save_data,
         asset_source: Box::new(asset_source),
+        is_exit_requested: false,
     };
 
     runner.audio.set_master_volume(runner.config.master_volume);

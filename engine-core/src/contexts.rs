@@ -25,6 +25,7 @@ pub struct UpdateContext<'a> {
     pub config: &'a GameConfig,
     pub save_data: &'a mut SaveData,
     pub asset_source: &'a dyn AssetSource,
+    pub is_exit_requested: &'a mut bool,
 }
 pub struct FixedContext<'a> {
     pub world: &'a mut World,
@@ -34,6 +35,7 @@ pub struct FixedContext<'a> {
     pub input: &'a mut InputState,
     pub save_data: &'a mut SaveData,
     pub asset_source: &'a dyn AssetSource,
+    pub is_exit_requested: &'a mut bool,
 }
 pub struct RenderContext<'a> {
     pub world: &'a mut World,
